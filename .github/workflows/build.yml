@@ -29,26 +29,35 @@ jobs:
 
       - name: Prepare build environment
         run: |
-          # Copy environment file
-          cp -n .env.example .env || true
-          touch local.properties || true
+          # 1. Environment & Properties
+          if [ ! -f ".env" ]; then
+            if [ -f ".env.example" ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+          touch local.properties
           
-          # Restore debug keystore if available
-          if [ -f "debug.keystore.base64" ]; then
+          # 2. Keystore setup
+          if [ ! -f "debug.keystore" ] && [ -f "debug.keystore.base64" ]; then
             echo "Decoding debug.keystore from base64..."
             base64 -d debug.keystore.base64 > debug.keystore
           fi
           
-          # Make gradlew executable
+          if [ ! -f "debug.keystore" ]; then
+            echo "Generating fallback debug keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          
+          ls -la debug.keystore
+          
+          # 3. Make gradlew executable
           chmod +x gradlew || true
 
       - name: Build Debug APK
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew :app:assembleDebug --stacktrace
-          else
-            gradle :app:assembleDebug --stacktrace
-          fi
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
