@@ -1,0 +1,6 @@
+{
+  "name": "TubeLite",
+  "description": "YouTube-style video streaming app with smart data saver, fast downloads, likes, comments, and subscriptions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
