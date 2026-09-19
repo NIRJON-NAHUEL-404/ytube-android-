@@ -1,6 +1,11 @@
 package com.example.ui.components
 
+import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -79,9 +84,181 @@ import com.example.ui.theme.DataSaverGreen
 import com.example.ui.theme.TubeRed
 import kotlinx.coroutines.delay
 
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun YouTubeEmbeddedPlayer(
+    youtubeId: String,
+    modifier: Modifier = Modifier
+) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val embedUrl = remember(youtubeId) {
+        "https://www.youtube-nocookie.com/embed/$youtubeId?autoplay=1&playsinline=1&enablejsapi=1&rel=0&modestbranding=1&fs=1"
+    }
+
+    DisposableEffect(youtubeId) {
+        onDispose {
+            try {
+                webViewRef?.loadUrl("about:blank")
+                webViewRef?.destroy()
+                webViewRef = null
+            } catch (_: Exception) {}
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.loadWithOverviewMode = true
+                settings.useWideViewPort = true
+                settings.cacheMode = WebSettings.LOAD_DEFAULT
+                settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                setBackgroundColor(android.graphics.Color.BLACK)
+                webChromeClient = WebChromeClient()
+                webViewClient = WebViewClient()
+                loadUrl(embedUrl)
+                webViewRef = this
+            }
+        },
+        update = { webView ->
+            webViewRef = webView
+            if (webView.url != embedUrl) {
+                webView.loadUrl(embedUrl)
+            }
+        },
+        modifier = modifier
+    )
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerView(
+    video: Video,
+    quality: VideoQuality,
+    isDataSaverEnabled: Boolean,
+    isFullScreen: Boolean,
+    onClosePlayer: () -> Unit,
+    onToggleFullScreen: () -> Unit,
+    onOpenQualitySettings: () -> Unit,
+    onPlaybackTick: (secondsWatched: Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val ytId = video.effectiveYouTubeId
+
+    if (ytId != null) {
+        // Real YouTube video playback
+        LaunchedEffect(ytId) {
+            while (true) {
+                delay(1000)
+                onPlaybackTick(0.5f)
+            }
+        }
+
+        Box(
+            modifier = modifier
+                .background(Color.Black)
+        ) {
+            YouTubeEmbeddedPlayer(
+                youtubeId = ytId,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Top control strip
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                        )
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(
+                        onClick = onClosePlayer,
+                        modifier = Modifier.testTag("close_player_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Player",
+                            tint = Color.White
+                        )
+                    }
+
+                    Text(
+                        text = video.title,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isDataSaverEnabled) DataSaverGreen.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onOpenQualitySettings() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isDataSaverEnabled) "⚡ সেভার চালু" else "⚡ HD/Auto",
+                            color = if (isDataSaverEnabled) DataSaverGreen else Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onToggleFullScreen,
+                        modifier = Modifier.testTag("fullscreen_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isFullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = "Toggle Fullscreen",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        ExoPlayerViewContent(
+            video = video,
+            quality = quality,
+            isDataSaverEnabled = isDataSaverEnabled,
+            isFullScreen = isFullScreen,
+            onClosePlayer = onClosePlayer,
+            onToggleFullScreen = onToggleFullScreen,
+            onOpenQualitySettings = onOpenQualitySettings,
+            onPlaybackTick = onPlaybackTick,
+            modifier = modifier
+        )
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun ExoPlayerViewContent(
     video: Video,
     quality: VideoQuality,
     isDataSaverEnabled: Boolean,

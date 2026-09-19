@@ -41,8 +41,16 @@ data class Video(
     val isDisliked: Boolean = false,
     val likesCount: Long = 12400L,
     val commentsCount: Int = 348,
-    val isSubscribed: Boolean = false
+    val isSubscribed: Boolean = false,
+    val youtubeId: String? = null
 ) {
+    val effectiveYouTubeId: String?
+        get() {
+            if (!youtubeId.isNullOrBlank()) return youtubeId
+            if (id.startsWith("yt_")) return id.removePrefix("yt_")
+            if (id.length == 11 && id.matches(Regex("[a-zA-Z0-9_-]{11}"))) return id
+            return null
+        }
     fun getStreamForQuality(quality: VideoQuality, dataSaverEnabled: Boolean): String {
         if (dataSaverEnabled && quality == VideoQuality.AUTO) {
             return stream240p

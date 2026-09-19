@@ -94,29 +94,25 @@ class TubeRepository(
                 cleanQuery.contains("গজল", ignoreCase = true) ||
                 cleanQuery.contains("বাউল", ignoreCase = true)
 
-        val workingStreams = listOf(
-            SampleVideoCatalog.STREAM_OCEANS,
-            SampleVideoCatalog.STREAM_BUNNY,
-            SampleVideoCatalog.STREAM_MOVIE300,
-            SampleVideoCatalog.STREAM_SINTEL,
-            SampleVideoCatalog.STREAM_BBB_FAST
-        )
+        val musicYtIds = listOf("YGnctmSC3z8", "t33M1Rj83nU", "mvUNTnHk07k", "O7WnA8AU4O8", "6y2pKyG7KSc")
+        val generalYtIds = listOf("tWatFr--zGY", "anzhRV7Qq2M", "dHoZ6Vd6HcE", "eRsGyueVLvQ", "Z0zB9gjWnfo")
 
         val musicThumbnails = listOf(
-            "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=800&auto=format&fit=crop&q=60"
+            "https://i.ytimg.com/vi/YGnctmSC3z8/hqdefault.jpg",
+            "https://i.ytimg.com/vi/t33M1Rj83nU/hqdefault.jpg",
+            "https://i.ytimg.com/vi/mvUNTnHk07k/hqdefault.jpg",
+            "https://i.ytimg.com/vi/O7WnA8AU4O8/hqdefault.jpg"
         )
 
         val generalThumbnails = listOf(
-            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=60",
-            "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=60"
+            "https://i.ytimg.com/vi/tWatFr--zGY/hqdefault.jpg",
+            "https://i.ytimg.com/vi/anzhRV7Qq2M/hqdefault.jpg",
+            "https://i.ytimg.com/vi/dHoZ6Vd6HcE/hqdefault.jpg",
+            "https://i.ytimg.com/vi/eRsGyueVLvQ/hqdefault.jpg"
         )
 
         val thumbs = if (isMusicQuery) musicThumbnails else generalThumbnails
+        val ytIds = if (isMusicQuery) musicYtIds else generalYtIds
 
         val channels = if (isMusicQuery) {
             listOf("Bangla Melody Station", "Sur O Chhondo BD", "TubeLite Music Hits", "Acoustic Vibes BD")
@@ -144,7 +140,7 @@ class TubeRepository(
 
         return titles.mapIndexed { index, title ->
             val videoId = "dyn_${queryHash}_$index"
-            val stream = workingStreams[index % workingStreams.size]
+            val ytId = ytIds[index % ytIds.size]
             Video(
                 id = videoId,
                 title = title,
@@ -152,12 +148,13 @@ class TubeRepository(
                 channelName = channels[index % channels.size],
                 channelAvatarUrl = "https://picsum.photos/seed/${videoId}/200/200",
                 subscriberCount = "${(index + 1) * 450}K",
-                videoUrl = stream,
+                videoUrl = "https://www.youtube.com/watch?v=$ytId",
                 thumbnailUrl = thumbs[index % thumbs.size],
                 durationSeconds = (180 + index * 45).toLong(),
                 viewsCount = (320000L + index * 185000L),
                 uploadedTimeAgo = "${index + 1} days ago",
                 category = if (isMusicQuery) "Music" else "All",
+                youtubeId = ytId,
                 likesCount = (15000L + index * 8200L),
                 commentsCount = 210 + index * 85
             )
@@ -165,66 +162,94 @@ class TubeRepository(
     }
 
     // Dynamic Videos Flow combining sample data with user interactions & subscriptions
-    fun getVideosFlow(categoryFilter: String = "All", searchQuery: String = ""): Flow<List<Video>> {
-        return combine(
-            userInteractionDao.getWatchHistory(),
-            subscriptionDao.getAllSubscriptions()
-        ) { interactions, subscriptions ->
-            val interactionMap = interactions.associateBy { it.videoId }
-            val subMap = subscriptions.associateBy { it.channelName }
-            val query = searchQuery.trim()
-            val tokens = query.split("\\s+".toRegex()).filter { it.isNotBlank() }
+    fun getVideosFlow(categoryFilter: String = "All", searchQuery: String = ""): Flow<List<Video>> = flow {
+        val query = searchQuery.trim()
+        val tokens = query.split("\\s+".toRegex()).filter { it.isNotBlank() }
 
-            val matchedVideos = SampleVideoCatalog.sampleVideos.filter { video ->
-                val matchesCategory = categoryFilter == "All" ||
-                        video.category.equals(categoryFilter, ignoreCase = true) ||
-                        (categoryFilter.contains("Music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
-                        (categoryFilter.contains("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
+        // Step 1: Immediately emit local matching videos so UI responds without delay
+        val localMatches = getAllCatalogVideos().filter { video ->
+            val matchesCategory = categoryFilter == "All" ||
+                    video.category.equals(categoryFilter, ignoreCase = true) ||
+                    (categoryFilter.contains("Music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                    (categoryFilter.contains("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
 
-                val matchesSearch = if (query.isBlank()) {
-                    true
-                } else {
-                    val fullMatch = video.title.contains(query, ignoreCase = true) ||
-                            video.channelName.contains(query, ignoreCase = true) ||
-                            video.description.contains(query, ignoreCase = true) ||
-                            video.category.contains(query, ignoreCase = true)
+            val matchesSearch = if (query.isBlank()) {
+                true
+            } else {
+                val fullMatch = video.title.contains(query, ignoreCase = true) ||
+                        video.channelName.contains(query, ignoreCase = true) ||
+                        video.description.contains(query, ignoreCase = true) ||
+                        video.category.contains(query, ignoreCase = true)
 
-                    val tokenMatch = tokens.any { token ->
-                        video.title.contains(token, ignoreCase = true) ||
-                                video.channelName.contains(token, ignoreCase = true) ||
-                                video.description.contains(token, ignoreCase = true) ||
-                                (token.equals("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
-                                (token.equals("song", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
-                                (token.equals("music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
-                    }
-
-                    fullMatch || tokenMatch
+                val tokenMatch = tokens.any { token ->
+                    video.title.contains(token, ignoreCase = true) ||
+                            video.channelName.contains(token, ignoreCase = true) ||
+                            video.description.contains(token, ignoreCase = true) ||
+                            (token.equals("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                            (token.equals("song", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                            (token.equals("music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
                 }
-                matchesCategory && matchesSearch
-            }.toMutableList()
+                fullMatch || tokenMatch
+            }
+            matchesCategory && matchesSearch
+        }
 
-            // If user searched for a term and fewer than 3 items matched, dynamically generate rich matching videos!
-            if (query.isNotBlank() && matchedVideos.size < 4) {
-                val generated = generateDynamicVideos(query)
-                generated.forEach { gen ->
-                    dynamicVideoCache[gen.id] = gen
-                    if (!matchedVideos.any { it.id == gen.id }) {
-                        matchedVideos.add(gen)
-                    }
+        if (localMatches.isNotEmpty()) {
+            emit(enrichVideos(localMatches))
+        }
+
+        // Step 2: Fetch real YouTube videos if searched or a specific category is selected
+        val ytQuery = when {
+            query.isNotBlank() -> query
+            categoryFilter == "গান (Music)" || categoryFilter.equals("Music", ignoreCase = true) -> "বাংলা নতুন গান 2026 trending"
+            categoryFilter.contains("গজল", ignoreCase = true) || categoryFilter.contains("Ghazal", ignoreCase = true) -> "বাংলা মন জুড়ানো গজল নাশীদ 2026"
+            categoryFilter.contains("মুভি", ignoreCase = true) || categoryFilter.contains("নাটক", ignoreCase = true) -> "বাংলা নতুন নাটক ও সিনেমা 2026"
+            categoryFilter.equals("Tech", ignoreCase = true) -> "Tech Tips Bangla 2026"
+            categoryFilter.equals("Travel", ignoreCase = true) -> "Travel Vlog Bangladesh 4K"
+            categoryFilter.equals("Gaming", ignoreCase = true) -> "Gaming Highlights esports"
+            categoryFilter.equals("Food", ignoreCase = true) -> "Bangla Recipe Ranna"
+            categoryFilter.equals("Animation", ignoreCase = true) -> "Best Animation Short Film"
+            else -> null
+        }
+
+        if (ytQuery != null) {
+            try {
+                val realVideos = YouTubeSearchService.searchVideos(ytQuery)
+                if (realVideos.isNotEmpty()) {
+                    realVideos.forEach { v -> dynamicVideoCache[v.id] = v }
+                    emit(enrichVideos(realVideos))
+                } else if (localMatches.isEmpty()) {
+                    val fallback = generateDynamicVideos(query)
+                    fallback.forEach { dynamicVideoCache[it.id] = it }
+                    emit(enrichVideos(fallback))
+                }
+            } catch (_: Exception) {
+                if (localMatches.isEmpty()) {
+                    val fallback = generateDynamicVideos(query)
+                    fallback.forEach { dynamicVideoCache[it.id] = it }
+                    emit(enrichVideos(fallback))
                 }
             }
+        } else if (localMatches.isEmpty()) {
+            emit(enrichVideos(SampleVideoCatalog.sampleVideos))
+        }
+    }.flowOn(Dispatchers.IO)
 
-            matchedVideos.map { video ->
-                val interaction = interactionMap[video.id]
-                val sub = subMap[video.channelName]
-                video.copy(
-                    isLiked = interaction?.isLiked ?: false,
-                    isDisliked = interaction?.isDisliked ?: false,
-                    likesCount = video.likesCount + (interaction?.likeCountOffset ?: 0),
-                    isSubscribed = sub?.isSubscribed ?: false
-                )
-            }
-        }.flowOn(Dispatchers.IO)
+    private suspend fun enrichVideos(videos: List<Video>): List<Video> {
+        val interactions = userInteractionDao.getWatchHistory().firstOrNull() ?: emptyList()
+        val subscriptions = subscriptionDao.getAllSubscriptions().firstOrNull() ?: emptyList()
+        val interactionMap = interactions.associateBy { it.videoId }
+        val subMap = subscriptions.associateBy { it.channelName }
+        return videos.map { video ->
+            val interaction = interactionMap[video.id]
+            val sub = subMap[video.channelName]
+            video.copy(
+                isLiked = interaction?.isLiked ?: false,
+                isDisliked = interaction?.isDisliked ?: false,
+                likesCount = video.likesCount + (interaction?.likeCountOffset ?: 0),
+                isSubscribed = sub?.isSubscribed ?: false
+            )
+        }
     }
 
     fun getVideoByIdFlow(videoId: String): Flow<Video?> {
@@ -232,7 +257,26 @@ class TubeRepository(
             userInteractionDao.getInteraction(videoId),
             subscriptionDao.getAllSubscriptions()
         ) { interaction, subscriptions ->
-            val baseVideo = getAllCatalogVideos().find { it.id == videoId } ?: return@combine null
+            var baseVideo = getAllCatalogVideos().find { it.id == videoId }
+            if (baseVideo == null) {
+                val cleanId = videoId.removePrefix("yt_")
+                baseVideo = Video(
+                    id = videoId,
+                    title = "YouTube Video",
+                    description = "Official YouTube Playback",
+                    channelName = "YouTube Creator",
+                    channelAvatarUrl = "https://picsum.photos/seed/$cleanId/200/200",
+                    subscriberCount = "1.0M",
+                    videoUrl = "https://www.youtube.com/watch?v=$cleanId",
+                    thumbnailUrl = "https://i.ytimg.com/vi/$cleanId/hqdefault.jpg",
+                    durationSeconds = 300,
+                    viewsCount = 100000,
+                    uploadedTimeAgo = "Recently",
+                    category = "YouTube",
+                    youtubeId = cleanId
+                )
+                dynamicVideoCache[videoId] = baseVideo
+            }
             val sub = subscriptions.find { it.channelName == baseVideo.channelName }
             baseVideo.copy(
                 isLiked = interaction?.isLiked ?: false,

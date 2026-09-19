@@ -88,7 +88,7 @@ fun HomeScreen(
         )
     }
 
-    val categories = listOf("All", "গান (Music)", "Tech", "Travel", "Gaming", "Food", "Animation")
+    val categories = listOf("All", "গান (Music)", "গজল (Ghazal)", "মুভি ও নাটক", "Tech", "Travel", "Gaming", "Food", "Animation")
 
     Column(
         modifier = modifier
@@ -198,7 +198,7 @@ fun HomeScreen(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     placeholder = {
-                        Text("বাংলা গান, নাটক বা ভিডিও খুঁজুন...", fontSize = 13.sp)
+                        Text("গান, গজল, নাটক, মুভি বা যেকোনো ভিডিও খুঁজুন...", fontSize = 13.sp)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
