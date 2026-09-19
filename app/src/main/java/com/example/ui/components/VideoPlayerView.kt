@@ -2,7 +2,9 @@ package com.example.ui.components
 
 import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -84,16 +86,80 @@ import com.example.ui.theme.DataSaverGreen
 import com.example.ui.theme.TubeRed
 import kotlinx.coroutines.delay
 
+private fun buildYouTubeEmbedHtml(youtubeId: String): String {
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <meta name="referrer" content="strict-origin-when-cross-origin">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                -webkit-tap-highlight-color: transparent;
+            }
+            html, body {
+                width: 100%;
+                height: 100%;
+                background-color: #000000;
+                overflow: hidden;
+            }
+            #player-container {
+                position: relative;
+                width: 100%;
+                height: 100%;
+            }
+            iframe {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                border: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="player-container">
+            <iframe
+                id="ytplayer"
+                type="text/html"
+                src="https://www.youtube.com/embed/$youtubeId?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=1&rel=0&modestbranding=1&iv_load_policy=3&origin=https://www.youtube.com"
+                frameborder="0"
+                referrerpolicy="strict-origin-when-cross-origin"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowfullscreen>
+            </iframe>
+        </div>
+        <script>
+            window.addEventListener('message', function(event) {
+                try {
+                    var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                    if (data && (data.event === 'onError' || data.info === 150 || data.info === 101 || data.info === 153)) {
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onPlayerError(data.info || 153);
+                        }
+                    }
+                } catch (e) {}
+            });
+        </script>
+    </body>
+    </html>
+    """.trimIndent()
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YouTubeEmbeddedPlayer(
     youtubeId: String,
+    onPlaybackFailed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    val embedUrl = remember(youtubeId) {
-        "https://www.youtube-nocookie.com/embed/$youtubeId?autoplay=1&playsinline=1&enablejsapi=1&rel=0&modestbranding=1&fs=1"
-    }
+    var currentLoadedId by remember { mutableStateOf("") }
 
     DisposableEffect(youtubeId) {
         onDispose {
@@ -112,24 +178,68 @@ fun YouTubeEmbeddedPlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.mediaPlaybackRequiresUserGesture = false
-                settings.loadWithOverviewMode = true
-                settings.useWideViewPort = true
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    mediaPlaybackRequiresUserGesture = false
+                    loadWithOverviewMode = true
+                    useWideViewPort = true
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                }
                 setBackgroundColor(android.graphics.Color.BLACK)
+
+                addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onPlayerError(code: Int) {
+                        post {
+                            onPlaybackFailed()
+                        }
+                    }
+                }, "AndroidBridge")
+
                 webChromeClient = WebChromeClient()
-                webViewClient = WebViewClient()
-                loadUrl(embedUrl)
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val url = request?.url?.toString() ?: ""
+                        // Allow the internal iframe embed and safe resources
+                        if (url.startsWith("https://www.youtube.com/embed/") ||
+                            url.startsWith("https://www.youtube-nocookie.com/embed/") ||
+                            url.startsWith("about:") ||
+                            url.startsWith("data:")) {
+                            return false
+                        }
+                        // NEVER allow WebView to navigate to full m.youtube.com, ads, or external pages inside player!
+                        if (url.contains("youtube.com/watch") || url.contains("youtu.be")) {
+                            onPlaybackFailed()
+                        }
+                        return true
+                    }
+                }
+
+                currentLoadedId = youtubeId
+                loadDataWithBaseURL(
+                    "https://www.youtube.com",
+                    buildYouTubeEmbedHtml(youtubeId),
+                    "text/html",
+                    "UTF-8",
+                    null
+                )
                 webViewRef = this
             }
         },
         update = { webView ->
             webViewRef = webView
-            if (webView.url != embedUrl) {
-                webView.loadUrl(embedUrl)
+            if (currentLoadedId != youtubeId) {
+                currentLoadedId = youtubeId
+                webView.loadDataWithBaseURL(
+                    "https://www.youtube.com",
+                    buildYouTubeEmbedHtml(youtubeId),
+                    "text/html",
+                    "UTF-8",
+                    null
+                )
             }
         },
         modifier = modifier
@@ -149,10 +259,11 @@ fun VideoPlayerView(
     onPlaybackTick: (secondsWatched: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var forceDirectPlayer by remember(video.id) { mutableStateOf(false) }
     val ytId = video.effectiveYouTubeId
 
-    if (ytId != null) {
-        // Real YouTube video playback
+    if (ytId != null && !forceDirectPlayer) {
+        // Real YouTube video embedded playback
         LaunchedEffect(ytId) {
             while (true) {
                 delay(1000)
@@ -166,6 +277,9 @@ fun VideoPlayerView(
         ) {
             YouTubeEmbeddedPlayer(
                 youtubeId = ytId,
+                onPlaybackFailed = {
+                    forceDirectPlayer = true
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -210,13 +324,31 @@ fun VideoPlayerView(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Quick switch to Native Direct Player if user wants
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White.copy(alpha = 0.2f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { forceDirectPlayer = true }
+                            .padding(end = 4.dp)
+                    ) {
+                        Text(
+                            text = "⚡ ডাইরেক্ট",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        )
+                    }
+
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = if (isDataSaverEnabled) DataSaverGreen.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.2f),
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
                             .clickable { onOpenQualitySettings() }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 4.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = if (isDataSaverEnabled) "⚡ সেভার চালু" else "⚡ HD/Auto",
@@ -311,7 +443,12 @@ private fun ExoPlayerViewContent(
 
     // Load stream according to selected quality & data saver mode
     val streamUrl = remember(video, quality, isDataSaverEnabled) {
-        video.getStreamForQuality(quality, isDataSaverEnabled)
+        val stream = video.getStreamForQuality(quality, isDataSaverEnabled)
+        if (stream.contains("youtube.com") || stream.contains("youtu.be")) {
+            SampleVideoCatalog.STREAM_OCEANS
+        } else {
+            stream
+        }
     }
 
     LaunchedEffect(streamUrl) {
@@ -342,7 +479,7 @@ private fun ExoPlayerViewContent(
 
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
-                val fallback = SampleVideoCatalog.STREAM_BBB_FAST
+                val fallback = SampleVideoCatalog.STREAM_OCEANS
                 if (streamUrl != fallback) {
                     val mediaItem = MediaItem.fromUri(fallback)
                     exoPlayer.setMediaItem(mediaItem)
