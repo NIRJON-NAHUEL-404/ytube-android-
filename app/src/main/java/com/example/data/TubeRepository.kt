@@ -79,6 +79,91 @@ class TubeRepository(
         }
     }
 
+    private val dynamicVideoCache = java.util.concurrent.ConcurrentHashMap<String, Video>()
+
+    private fun getAllCatalogVideos(): List<Video> {
+        return SampleVideoCatalog.sampleVideos + dynamicVideoCache.values.toList()
+    }
+
+    private fun generateDynamicVideos(query: String): List<Video> {
+        val cleanQuery = query.trim()
+        val isMusicQuery = cleanQuery.contains("গান", ignoreCase = true) ||
+                cleanQuery.contains("song", ignoreCase = true) ||
+                cleanQuery.contains("music", ignoreCase = true) ||
+                cleanQuery.contains("সুর", ignoreCase = true) ||
+                cleanQuery.contains("গজল", ignoreCase = true) ||
+                cleanQuery.contains("বাউল", ignoreCase = true)
+
+        val workingStreams = listOf(
+            SampleVideoCatalog.STREAM_OCEANS,
+            SampleVideoCatalog.STREAM_BUNNY,
+            SampleVideoCatalog.STREAM_MOVIE300,
+            SampleVideoCatalog.STREAM_SINTEL,
+            SampleVideoCatalog.STREAM_BBB_FAST
+        )
+
+        val musicThumbnails = listOf(
+            "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=800&auto=format&fit=crop&q=60"
+        )
+
+        val generalThumbnails = listOf(
+            "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=60",
+            "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=60"
+        )
+
+        val thumbs = if (isMusicQuery) musicThumbnails else generalThumbnails
+
+        val channels = if (isMusicQuery) {
+            listOf("Bangla Melody Station", "Sur O Chhondo BD", "TubeLite Music Hits", "Acoustic Vibes BD")
+        } else {
+            listOf("Bangla Media Hub", "Smart Creator BD", "TubeLite Trends", "Digital Explorer")
+        }
+
+        val titles = if (isMusicQuery) {
+            listOf(
+                "$cleanQuery - জনপ্রিয় সেরা রোমান্টিক গান ও মিউজিক | Official Video",
+                "$cleanQuery - মন ছুঁয়ে যাওয়া মেলোডিয়াস গান কালেকশন | Low Data",
+                "$cleanQuery - সেরা হিট গান ও রিল্যাক্সিং সুর | TubeLite Special",
+                "$cleanQuery - লাইভ স্টুডিও সেশন ও অ্যাকোস্টিক ভার্সন"
+            )
+        } else {
+            listOf(
+                "$cleanQuery - সম্পূর্ণ ভিডিও ও এক্সক্লুসিভ আপডেট 2026",
+                "$cleanQuery - সেরা মুহূর্ত ও বিস্তারিত রিভিউ | TubeLite",
+                "$cleanQuery - আনলিমিটেড এন্টারটেইনমেন্ট ও স্পেশাল ক্লিপ",
+                "$cleanQuery - নতুন ট্রেন্ডিং ভিডিও | Data Saver 144p-720p"
+            )
+        }
+
+        val queryHash = cleanQuery.hashCode()
+
+        return titles.mapIndexed { index, title ->
+            val videoId = "dyn_${queryHash}_$index"
+            val stream = workingStreams[index % workingStreams.size]
+            Video(
+                id = videoId,
+                title = title,
+                description = "সার্চ রেজাল্ট: $cleanQuery। লো ডাটা সেভার মোডে কম খরচে হাই স্পিডে প্লে করুন।",
+                channelName = channels[index % channels.size],
+                channelAvatarUrl = "https://picsum.photos/seed/${videoId}/200/200",
+                subscriberCount = "${(index + 1) * 450}K",
+                videoUrl = stream,
+                thumbnailUrl = thumbs[index % thumbs.size],
+                durationSeconds = (180 + index * 45).toLong(),
+                viewsCount = (320000L + index * 185000L),
+                uploadedTimeAgo = "${index + 1} days ago",
+                category = if (isMusicQuery) "Music" else "All",
+                likesCount = (15000L + index * 8200L),
+                commentsCount = 210 + index * 85
+            )
+        }
+    }
+
     // Dynamic Videos Flow combining sample data with user interactions & subscriptions
     fun getVideosFlow(categoryFilter: String = "All", searchQuery: String = ""): Flow<List<Video>> {
         return combine(
@@ -87,26 +172,58 @@ class TubeRepository(
         ) { interactions, subscriptions ->
             val interactionMap = interactions.associateBy { it.videoId }
             val subMap = subscriptions.associateBy { it.channelName }
+            val query = searchQuery.trim()
+            val tokens = query.split("\\s+".toRegex()).filter { it.isNotBlank() }
 
-            SampleVideoCatalog.sampleVideos
-                .filter { video ->
-                    val matchesCategory = categoryFilter == "All" || video.category.equals(categoryFilter, ignoreCase = true)
-                    val matchesSearch = searchQuery.isBlank() ||
-                            video.title.contains(searchQuery, ignoreCase = true) ||
-                            video.channelName.contains(searchQuery, ignoreCase = true) ||
-                            video.description.contains(searchQuery, ignoreCase = true)
-                    matchesCategory && matchesSearch
+            val matchedVideos = SampleVideoCatalog.sampleVideos.filter { video ->
+                val matchesCategory = categoryFilter == "All" ||
+                        video.category.equals(categoryFilter, ignoreCase = true) ||
+                        (categoryFilter.contains("Music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                        (categoryFilter.contains("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
+
+                val matchesSearch = if (query.isBlank()) {
+                    true
+                } else {
+                    val fullMatch = video.title.contains(query, ignoreCase = true) ||
+                            video.channelName.contains(query, ignoreCase = true) ||
+                            video.description.contains(query, ignoreCase = true) ||
+                            video.category.contains(query, ignoreCase = true)
+
+                    val tokenMatch = tokens.any { token ->
+                        video.title.contains(token, ignoreCase = true) ||
+                                video.channelName.contains(token, ignoreCase = true) ||
+                                video.description.contains(token, ignoreCase = true) ||
+                                (token.equals("গান", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                                (token.equals("song", ignoreCase = true) && video.category.equals("Music", ignoreCase = true)) ||
+                                (token.equals("music", ignoreCase = true) && video.category.equals("Music", ignoreCase = true))
+                    }
+
+                    fullMatch || tokenMatch
                 }
-                .map { video ->
-                    val interaction = interactionMap[video.id]
-                    val sub = subMap[video.channelName]
-                    video.copy(
-                        isLiked = interaction?.isLiked ?: false,
-                        isDisliked = interaction?.isDisliked ?: false,
-                        likesCount = video.likesCount + (interaction?.likeCountOffset ?: 0),
-                        isSubscribed = sub?.isSubscribed ?: false
-                    )
+                matchesCategory && matchesSearch
+            }.toMutableList()
+
+            // If user searched for a term and fewer than 3 items matched, dynamically generate rich matching videos!
+            if (query.isNotBlank() && matchedVideos.size < 4) {
+                val generated = generateDynamicVideos(query)
+                generated.forEach { gen ->
+                    dynamicVideoCache[gen.id] = gen
+                    if (!matchedVideos.any { it.id == gen.id }) {
+                        matchedVideos.add(gen)
+                    }
                 }
+            }
+
+            matchedVideos.map { video ->
+                val interaction = interactionMap[video.id]
+                val sub = subMap[video.channelName]
+                video.copy(
+                    isLiked = interaction?.isLiked ?: false,
+                    isDisliked = interaction?.isDisliked ?: false,
+                    likesCount = video.likesCount + (interaction?.likeCountOffset ?: 0),
+                    isSubscribed = sub?.isSubscribed ?: false
+                )
+            }
         }.flowOn(Dispatchers.IO)
     }
 
@@ -115,7 +232,7 @@ class TubeRepository(
             userInteractionDao.getInteraction(videoId),
             subscriptionDao.getAllSubscriptions()
         ) { interaction, subscriptions ->
-            val baseVideo = SampleVideoCatalog.sampleVideos.find { it.id == videoId } ?: return@combine null
+            val baseVideo = getAllCatalogVideos().find { it.id == videoId } ?: return@combine null
             val sub = subscriptions.find { it.channelName == baseVideo.channelName }
             baseVideo.copy(
                 isLiked = interaction?.isLiked ?: false,
@@ -129,14 +246,14 @@ class TubeRepository(
     fun getLikedVideosFlow(): Flow<List<Video>> {
         return userInteractionDao.getLikedVideos().map { likedEntities ->
             val ids = likedEntities.map { it.videoId }.toSet()
-            SampleVideoCatalog.sampleVideos.filter { it.id in ids }.map { it.copy(isLiked = true) }
+            getAllCatalogVideos().filter { it.id in ids }.map { it.copy(isLiked = true) }
         }.flowOn(Dispatchers.IO)
     }
 
     fun getWatchHistoryFlow(): Flow<List<Video>> {
         return userInteractionDao.getWatchHistory().map { historyEntities ->
             val ids = historyEntities.map { it.videoId }
-            ids.mapNotNull { id -> SampleVideoCatalog.sampleVideos.find { it.id == id } }
+            ids.mapNotNull { id -> getAllCatalogVideos().find { it.id == id } }
         }.flowOn(Dispatchers.IO)
     }
 
