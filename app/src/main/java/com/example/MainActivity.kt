@@ -16,10 +16,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -78,6 +84,7 @@ fun TubeLiteApp(viewModel: TubeViewModel) {
     val isPlayerFullScreen by viewModel.isPlayerFullScreen.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
 
     // Handle Back Press
     BackHandler(enabled = currentPlayingVideo != null) {
@@ -88,105 +95,111 @@ fun TubeLiteApp(viewModel: TubeViewModel) {
         }
     }
 
+    val tabAccentYellow = Color(0xFFE5A93C)
+    val tabNavBg = Color(0xFF0F0F0F)
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             // Hide bottom bar if video is playing in full screen or active player
             if (currentPlayingVideo == null) {
                 NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    tonalElevation = 6.dp,
+                    containerColor = tabNavBg,
+                    contentColor = Color.White,
+                    tonalElevation = 8.dp,
                     modifier = Modifier
                         .navigationBarsPadding()
                         .testTag("bottom_navigation_bar")
                 ) {
-                    // Home
+                    // Tab 1: Download / Search (Matches Screenshot Tab 1)
                     NavigationBarItem(
                         selected = selectedTab == TubeTab.HOME,
                         onClick = { viewModel.selectTab(TubeTab.HOME) },
                         icon = {
                             Icon(
-                                imageVector = if (selectedTab == TubeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
-                                contentDescription = "Home"
+                                imageVector = if (selectedTab == TubeTab.HOME) Icons.Filled.Search else Icons.Outlined.Search,
+                                contentDescription = "Download"
                             )
                         },
-                        label = { Text("হোম", fontSize = 11.sp, fontWeight = if (selectedTab == TubeTab.HOME) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                "Download",
+                                fontSize = 11.sp,
+                                fontWeight = if (selectedTab == TubeTab.HOME) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = TubeRed,
-                            indicatorColor = TubeRed.copy(alpha = 0.12f)
+                            selectedIconColor = tabAccentYellow,
+                            selectedTextColor = tabAccentYellow,
+                            unselectedIconColor = Color(0xFF9E9E9E),
+                            unselectedTextColor = Color(0xFF9E9E9E),
+                            indicatorColor = tabAccentYellow.copy(alpha = 0.15f)
                         ),
                         modifier = Modifier.testTag("tab_home")
                     )
 
-                    // Subscriptions
+                    // Tab 2: Play (Matches Screenshot Tab 2)
                     NavigationBarItem(
-                        selected = selectedTab == TubeTab.SUBSCRIPTIONS,
-                        onClick = { viewModel.selectTab(TubeTab.SUBSCRIPTIONS) },
-                        icon = {
-                            BadgedBox(
-                                badge = {
-                                    if (subscriptions.isNotEmpty()) {
-                                        Badge(containerColor = TubeRed)
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (selectedTab == TubeTab.SUBSCRIPTIONS) Icons.Filled.Subscriptions else Icons.Outlined.Subscriptions,
-                                    contentDescription = "Subscriptions"
-                                )
-                            }
-                        },
-                        label = { Text("সাবস্ক্রিপশন", fontSize = 11.sp, fontWeight = if (selectedTab == TubeTab.SUBSCRIPTIONS) FontWeight.Bold else FontWeight.Normal) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = TubeRed,
-                            indicatorColor = TubeRed.copy(alpha = 0.12f)
-                        ),
-                        modifier = Modifier.testTag("tab_subscriptions")
-                    )
-
-                    // Downloads
-                    NavigationBarItem(
-                        selected = selectedTab == TubeTab.DOWNLOADS,
+                        selected = selectedTab == TubeTab.DOWNLOADS || selectedTab == TubeTab.SUBSCRIPTIONS,
                         onClick = { viewModel.selectTab(TubeTab.DOWNLOADS) },
                         icon = {
                             BadgedBox(
                                 badge = {
                                     if (downloads.isNotEmpty()) {
-                                        Badge(containerColor = TubeRed) {
-                                            Text("${downloads.size}")
+                                        Badge(containerColor = tabAccentYellow) {
+                                            Text("${downloads.size}", color = Color.Black)
                                         }
                                     }
                                 }
                             ) {
                                 Icon(
-                                    imageVector = if (selectedTab == TubeTab.DOWNLOADS) Icons.Filled.FileDownload else Icons.Outlined.FileDownload,
-                                    contentDescription = "Downloads"
+                                    imageVector = if (selectedTab == TubeTab.DOWNLOADS || selectedTab == TubeTab.SUBSCRIPTIONS)
+                                        Icons.Filled.PlayCircle else Icons.Outlined.PlayCircle,
+                                    contentDescription = "Play"
                                 )
                             }
                         },
-                        label = { Text("ডাউনলোড", fontSize = 11.sp, fontWeight = if (selectedTab == TubeTab.DOWNLOADS) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                "Play",
+                                fontSize = 11.sp,
+                                fontWeight = if (selectedTab == TubeTab.DOWNLOADS || selectedTab == TubeTab.SUBSCRIPTIONS)
+                                    FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = TubeRed,
-                            indicatorColor = TubeRed.copy(alpha = 0.12f)
+                            selectedIconColor = tabAccentYellow,
+                            selectedTextColor = tabAccentYellow,
+                            unselectedIconColor = Color(0xFF9E9E9E),
+                            unselectedTextColor = Color(0xFF9E9E9E),
+                            indicatorColor = tabAccentYellow.copy(alpha = 0.15f)
                         ),
                         modifier = Modifier.testTag("tab_downloads")
                     )
 
-                    // Profile / You
+                    // Tab 3: Settings (Matches Screenshot Tab 3)
                     NavigationBarItem(
                         selected = selectedTab == TubeTab.PROFILE,
                         onClick = { viewModel.selectTab(TubeTab.PROFILE) },
                         icon = {
                             Icon(
-                                imageVector = if (selectedTab == TubeTab.PROFILE) Icons.Filled.Person else Icons.Outlined.Person,
-                                contentDescription = "Profile"
+                                imageVector = if (selectedTab == TubeTab.PROFILE) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                contentDescription = "Settings"
                             )
                         },
-                        label = { Text("প্রোফাইল", fontSize = 11.sp, fontWeight = if (selectedTab == TubeTab.PROFILE) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                "Settings",
+                                fontSize = 11.sp,
+                                fontWeight = if (selectedTab == TubeTab.PROFILE) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = TubeRed,
-                            indicatorColor = TubeRed.copy(alpha = 0.12f)
+                            selectedIconColor = tabAccentYellow,
+                            selectedTextColor = tabAccentYellow,
+                            unselectedIconColor = Color(0xFF9E9E9E),
+                            unselectedTextColor = Color(0xFF9E9E9E),
+                            indicatorColor = tabAccentYellow.copy(alpha = 0.15f)
                         ),
                         modifier = Modifier.testTag("tab_profile")
                     )
@@ -206,6 +219,7 @@ fun TubeLiteApp(viewModel: TubeViewModel) {
                         videos = videos,
                         selectedCategory = selectedCategory,
                         searchQuery = searchQuery,
+                        searchSuggestions = searchSuggestions,
                         dataSaverSettings = dataSaverSettings,
                         onSelectCategory = viewModel::setSelectedCategory,
                         onSearchQueryChange = viewModel::setSearchQuery,

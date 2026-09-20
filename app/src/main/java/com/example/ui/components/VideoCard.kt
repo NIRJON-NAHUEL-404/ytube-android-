@@ -13,24 +13,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,9 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.Video
-import com.example.ui.theme.DataSaverGreen
-import com.example.ui.theme.TubeRed
 
+/**
+ * Clean, modern video card matching the exact UI from user's screenshot:
+ * - Edge-to-edge / slightly rounded high-res thumbnail (16:9)
+ * - Mix / Playlist icon indicator on bottom-right of thumbnail
+ * - Left: Title in bold white, Artists / Channel subtitle below
+ * - Right: Direct Download button (arrow into tray)
+ */
 @Composable
 fun VideoCard(
     video: Video,
@@ -53,21 +50,19 @@ fun VideoCard(
     onDownloadClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .testTag("video_card_${video.id}")
-            .padding(bottom = 16.dp)
+            .padding(bottom = 18.dp)
     ) {
         // Thumbnail Box
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .background(Color(0xFF202020))
+                .aspectRatio(16f / 9.2f)
+                .background(Color(0xFF181818))
         ) {
             AsyncImage(
                 model = video.thumbnailUrl,
@@ -76,159 +71,173 @@ fun VideoCard(
                 modifier = Modifier.matchParentSize()
             )
 
-            // Duration badge in bottom-right corner
+            // Playlist / Mix 3-lines icon on bottom-right (as shown in screenshot)
             Surface(
-                color = Color.Black.copy(alpha = 0.82f),
+                color = Color.Black.copy(alpha = 0.75f),
                 shape = RoundedCornerShape(4.dp),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
             ) {
-                Text(
-                    text = video.getFormattedDuration(),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                )
-            }
-
-            // Category tag in top-left corner
-            Surface(
-                color = Color.Black.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = video.category,
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Mix",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    if (video.durationSeconds > 0) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = video.getFormattedDuration(),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Info Row: Avatar + Details + Overflow Menu
+        // Info Row: Left Title & Artist / Subtitle, Right Direct Download Button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Channel Avatar
-            AsyncImage(
-                model = video.channelAvatarUrl,
-                contentDescription = video.channelName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF333333))
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Title & Meta Text
             Column(
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
             ) {
+                // Title
                 Text(
                     text = video.title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = 18.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(3.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = video.channelName,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "•",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = video.getFormattedViews(),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "•",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = video.uploadedTimeAgo,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                // Artist / Channel Subtitle
+                Text(
+                    text = video.channelName,
+                    fontSize = 12.sp,
+                    color = Color(0xFF9E9E9E),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
-            // 3-dots Menu Button
-            Box {
-                IconButton(
-                    onClick = { menuExpanded = true },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+            // Direct Download Button (arrow down into tray, as shown in screenshot)
+            IconButton(
+                onClick = onDownloadClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .testTag("download_button_${video.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    contentDescription = "Download Video",
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
+    }
+}
 
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("দ্রুত ডাউনলোড (Fast Download)") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = null,
-                                tint = TubeRed
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onDownloadClick()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("প্লে করুন (Play Video)") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onClick()
-                        }
-                    )
-                }
+/**
+ * 2-Column Grid Video Card for bottom section
+ */
+@Composable
+fun GridVideoCard(
+    video: Video,
+    onClick: () -> Unit,
+    onDownloadClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(bottom = 12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 10f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF1E1E1E))
+        ) {
+            AsyncImage(
+                model = video.thumbnailUrl,
+                contentDescription = video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+
+            Surface(
+                color = Color.Black.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+            ) {
+                Text(
+                    text = video.getFormattedDuration(),
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = video.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = video.channelName,
+                    fontSize = 11.sp,
+                    color = Color(0xFF9E9E9E),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(
+                onClick = onDownloadClick,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FileDownload,
+                    contentDescription = "Download",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }

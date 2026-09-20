@@ -12,6 +12,78 @@ object SampleVideoCatalog {
     const val STREAM_BBB_FAST = "https://www.w3schools.com/html/mov_bbb.mp4"
 
     val sampleVideos = listOf(
+        // Featured in Screenshot: Kamariya Slowed Reverb / Mix Music of Asia
+        Video(
+            id = "vid_kamariya_slowed",
+            title = "Mix - Music of Asia",
+            description = "Popular Asian Hits & Slowed Reverb Mix. High audio clarity with low data consumption.",
+            channelName = "Banjyotsna, Arijit Singh, Sachet Tandon, and more",
+            channelAvatarUrl = "https://picsum.photos/seed/musicofasia/200/200",
+            subscriberCount = "3.2M",
+            videoUrl = "https://www.youtube.com/watch?v=8Ru-Kcx1img",
+            thumbnailUrl = "https://i.ytimg.com/vi/8Ru-Kcx1img/hq720.jpg",
+            durationSeconds = 345,
+            viewsCount = 14500000,
+            uploadedTimeAgo = "1 day ago",
+            category = "YouTube",
+            youtubeId = "8Ru-Kcx1img",
+            likesCount = 280000,
+            commentsCount = 3100
+        ),
+        // Featured in Screenshot: Kiya Kiya Slowed Reverb
+        Video(
+            id = "vid_kiya_kiya_slowed",
+            title = "Mix - Kiya Kiya | Slowed+Reverb | Akshay Kumar, Katrina...",
+            description = "Kiya Kiya Slowed & Reverb Mix @Lofimusicstore. Deep bass, chill lofi acoustic vibe.",
+            channelName = "Akshay Kumar, Udit Narayan, Khesari Lal Yadav, and more",
+            channelAvatarUrl = "https://picsum.photos/seed/lofistore/200/200",
+            subscriberCount = "1.9M",
+            videoUrl = "https://www.youtube.com/watch?v=MGB3NfP-0g8",
+            thumbnailUrl = "https://i.ytimg.com/vi/MGB3NfP-0g8/hq720.jpg",
+            durationSeconds = 285,
+            viewsCount = 8900000,
+            uploadedTimeAgo = "3 days ago",
+            category = "YouTube",
+            youtubeId = "MGB3NfP-0g8",
+            likesCount = 195000,
+            commentsCount = 2400
+        ),
+        // Featured in Screenshot: Duti Mone Uttara Shabnur
+        Video(
+            id = "vid_duti_mone",
+            title = "Duti Mone | দুটি মনে লেগে গেছে জোড়া | HD | Shabnur & Shakib Khan | Andrew & Kanak | Golam | Anupam",
+            description = "অনুপম মুভি সংস: দুটি মনে লেগে গেছে জোড়া। শাবনূর ও শাকিব খান। এন্ড্রু কিশোর ও কনক চাঁপা।",
+            channelName = "Anupam Movie Songs",
+            channelAvatarUrl = "https://picsum.photos/seed/anupam/200/200",
+            subscriberCount = "5.8M",
+            videoUrl = "https://www.youtube.com/watch?v=t33M1Rj83nU",
+            thumbnailUrl = "https://i.ytimg.com/vi/t33M1Rj83nU/hq720.jpg",
+            durationSeconds = 320,
+            viewsCount = 129847029,
+            uploadedTimeAgo = "2 years ago",
+            category = "Music",
+            youtubeId = "t33M1Rj83nU",
+            likesCount = 340000,
+            commentsCount = 4200
+        ),
+        // Coke Studio Bangla Hit
+        Video(
+            id = "vid_coke_studio_mohajadu",
+            title = "Moha Jadu | Coke Studio Bangla | Season 3 | Habib Wahid X Mehrnigori",
+            description = "Coke Studio Bangla Season 3 Official Hit Track. Habib Wahid & Mehrnigori Rustam.",
+            channelName = "Coke Studio Bangla",
+            channelAvatarUrl = "https://picsum.photos/seed/cokestudio/200/200",
+            subscriberCount = "4.1M",
+            videoUrl = "https://www.youtube.com/watch?v=UghMf59vDJM",
+            thumbnailUrl = "https://i.ytimg.com/vi/UghMf59vDJM/hq720.jpg",
+            durationSeconds = 254,
+            viewsCount = 78920000,
+            uploadedTimeAgo = "1 month ago",
+            category = "Music",
+            youtubeId = "UghMf59vDJM",
+            likesCount = 510000,
+            commentsCount = 7800
+        ),
         // Bangla Songs / Music (Real YouTube IDs)
         Video(
             id = "vid_song_2",

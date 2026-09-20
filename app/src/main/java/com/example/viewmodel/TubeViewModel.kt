@@ -35,11 +35,17 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedTab = MutableStateFlow(TubeTab.HOME)
     val selectedTab: StateFlow<TubeTab> = _selectedTab.asStateFlow()
 
-    private val _selectedCategory = MutableStateFlow("All")
+    private val _selectedCategory = MutableStateFlow("YouTube")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
+    private val _isSearchLoading = MutableStateFlow(false)
+    val isSearchLoading: StateFlow<Boolean> = _isSearchLoading.asStateFlow()
 
     private val _currentPlayingVideo = MutableStateFlow<Video?>(null)
     val currentPlayingVideo: StateFlow<Video?> = _currentPlayingVideo.asStateFlow()
@@ -130,6 +136,18 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
+        viewModelScope.launch {
+            if (query.trim().length >= 2) {
+                try {
+                    val suggs = com.example.data.YouTubeSearchService.getSearchSuggestions(query.trim())
+                    _searchSuggestions.value = suggs
+                } catch (_: Exception) {
+                    _searchSuggestions.value = emptyList()
+                }
+            } else {
+                _searchSuggestions.value = emptyList()
+            }
+        }
     }
 
     fun playVideo(video: Video) {

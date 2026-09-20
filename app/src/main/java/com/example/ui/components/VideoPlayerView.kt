@@ -86,80 +86,111 @@ import com.example.ui.theme.DataSaverGreen
 import com.example.ui.theme.TubeRed
 import kotlinx.coroutines.delay
 
-private fun buildYouTubeEmbedHtml(youtubeId: String): String {
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <meta name="referrer" content="strict-origin-when-cross-origin">
-        <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-                -webkit-tap-highlight-color: transparent;
-            }
-            html, body {
-                width: 100%;
-                height: 100%;
-                background-color: #000000;
-                overflow: hidden;
-            }
-            #player-container {
-                position: relative;
-                width: 100%;
-                height: 100%;
-            }
-            iframe {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                border: 0;
-            }
-        </style>
-    </head>
-    <body>
-        <div id="player-container">
-            <iframe
-                id="ytplayer"
-                type="text/html"
-                src="https://www.youtube.com/embed/$youtubeId?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=1&rel=0&modestbranding=1&iv_load_policy=3&origin=https://www.youtube.com"
-                frameborder="0"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowfullscreen>
-            </iframe>
-        </div>
-        <script>
-            window.addEventListener('message', function(event) {
-                try {
-                    var data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-                    if (data && (data.event === 'onError' || data.info === 150 || data.info === 101 || data.info === 153)) {
-                        if (window.AndroidBridge) {
-                            window.AndroidBridge.onPlayerError(data.info || 153);
-                        }
-                    }
-                } catch (e) {}
-            });
-        </script>
-    </body>
-    </html>
-    """.trimIndent()
-}
-
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YouTubeEmbeddedPlayer(
     youtubeId: String,
-    onPlaybackFailed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var currentLoadedId by remember { mutableStateOf("") }
+    val watchUrl = remember(youtubeId) { "https://m.youtube.com/watch?v=$youtubeId" }
+
+    val cleanPlayerCss = """
+        header,
+        #header-bar,
+        ytm-mobile-topbar-renderer,
+        ytm-pivot-bar-renderer,
+        .ytm-pivot-bar,
+        ytm-single-column-browse-results-renderer,
+        .watch-below-the-fold,
+        ytm-item-section-renderer,
+        #comments,
+        .comment-section-renderer,
+        ytm-engagement-panel,
+        ytm-promoted-sparkles-web-renderer,
+        ytm-companion-ad-renderer,
+        .ytp-ad-overlay-container,
+        .video-ads,
+        .ytp-ad-module,
+        .ad-showing,
+        .ytp-ad-player-overlay,
+        ytm-app-promo,
+        .upsell-dialog-renderer,
+        ytm-mealbar-promo-renderer,
+        .ytm-cookie-banner,
+        tp-yt-paper-dialog,
+        #lightbox,
+        .ytp-chrome-top,
+        .ytp-show-cards-title,
+        .ytp-pause-overlay {
+            display: none !important;
+        }
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #000000 !important;
+            overflow: hidden !important;
+            width: 100vw !important;
+            height: 100% !important;
+        }
+        #player-container-id,
+        .player-container,
+        #player {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100% !important;
+            z-index: 999999 !important;
+            background: #000000 !important;
+        }
+        video, .html5-main-video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain !important;
+        }
+    """.trimIndent().replace("\n", " ")
+
+    val injectScript = """
+        (function() {
+            // 1. Background Playback Hack: Prevent YouTube from pausing when screen turns off or app is backgrounded
+            try {
+                window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+            } catch(e) {}
+
+            // 2. Inject CSS to hide all YouTube website clutter and show only the video player
+            var styleId = 'tube-clean-style';
+            var existingStyle = document.getElementById(styleId);
+            if (!existingStyle) {
+                var style = document.createElement('style');
+                style.id = styleId;
+                style.textContent = `$cleanPlayerCss`;
+                document.documentElement.appendChild(style);
+            }
+
+            // 3. Auto-play & Auto-skip ads (Free Premium experience)
+            if (!window.__tubeInterval) {
+                window.__tubeInterval = setInterval(function() {
+                    var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
+                    if (skipBtn) {
+                        skipBtn.click();
+                    }
+                    var dismissBtn = document.querySelector('ytm-mealbar-promo-renderer button, .upsell-dialog-renderer button');
+                    if (dismissBtn) {
+                        dismissBtn.click();
+                    }
+                    var video = document.querySelector('video');
+                    if (video && video.paused && !video.ended) {
+                        video.play().catch(function(){});
+                    }
+                }, 350);
+            }
+        })();
+    """.trimIndent()
 
     DisposableEffect(youtubeId) {
         onDispose {
@@ -187,45 +218,42 @@ fun YouTubeEmbeddedPlayer(
                     useWideViewPort = true
                     cacheMode = WebSettings.LOAD_DEFAULT
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    javaScriptCanOpenWindowsAutomatically = false
+                    setSupportMultipleWindows(false)
+                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                 }
                 setBackgroundColor(android.graphics.Color.BLACK)
 
-                addJavascriptInterface(object {
-                    @JavascriptInterface
-                    fun onPlayerError(code: Int) {
-                        post {
-                            onPlaybackFailed()
-                        }
-                    }
-                }, "AndroidBridge")
-
                 webChromeClient = WebChromeClient()
                 webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(injectScript, null)
+                    }
+
+                    override fun onLoadResource(view: WebView?, url: String?) {
+                        super.onLoadResource(view, url)
+                        view?.evaluateJavascript(injectScript, null)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        view?.evaluateJavascript(injectScript, null)
+                    }
+
                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                         val url = request?.url?.toString() ?: ""
-                        // Allow the internal iframe embed and safe resources
-                        if (url.startsWith("https://www.youtube.com/embed/") ||
-                            url.startsWith("https://www.youtube-nocookie.com/embed/") ||
-                            url.startsWith("about:") ||
-                            url.startsWith("data:")) {
+                        // Allow navigation for the current watch video
+                        if (url.contains("watch?v=$youtubeId") || url.contains("youtu.be/$youtubeId")) {
                             return false
                         }
-                        // NEVER allow WebView to navigate to full m.youtube.com, ads, or external pages inside player!
-                        if (url.contains("youtube.com/watch") || url.contains("youtu.be")) {
-                            onPlaybackFailed()
-                        }
+                        // Strictly block navigating away to channels, external ads, or outside apps
                         return true
                     }
                 }
 
                 currentLoadedId = youtubeId
-                loadDataWithBaseURL(
-                    "https://www.youtube.com",
-                    buildYouTubeEmbedHtml(youtubeId),
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
+                loadUrl(watchUrl)
                 webViewRef = this
             }
         },
@@ -233,13 +261,7 @@ fun YouTubeEmbeddedPlayer(
             webViewRef = webView
             if (currentLoadedId != youtubeId) {
                 currentLoadedId = youtubeId
-                webView.loadDataWithBaseURL(
-                    "https://www.youtube.com",
-                    buildYouTubeEmbedHtml(youtubeId),
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
+                webView.loadUrl(watchUrl)
             }
         },
         modifier = modifier
@@ -259,11 +281,10 @@ fun VideoPlayerView(
     onPlaybackTick: (secondsWatched: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var forceDirectPlayer by remember(video.id) { mutableStateOf(false) }
     val ytId = video.effectiveYouTubeId
 
-    if (ytId != null && !forceDirectPlayer) {
-        // Real YouTube video embedded playback
+    if (ytId != null) {
+        // Real YouTube video playback with Ad-block & Background Playback
         LaunchedEffect(ytId) {
             while (true) {
                 delay(1000)
@@ -277,9 +298,6 @@ fun VideoPlayerView(
         ) {
             YouTubeEmbeddedPlayer(
                 youtubeId = ytId,
-                onPlaybackFailed = {
-                    forceDirectPlayer = true
-                },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -324,18 +342,17 @@ fun VideoPlayerView(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Quick switch to Native Direct Player if user wants
+                    // Background Playback & Ad-Free Indicator
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = Color.White.copy(alpha = 0.2f),
+                        color = Color(0xFF1B5E20).copy(alpha = 0.7f),
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .clickable { forceDirectPlayer = true }
                             .padding(end = 4.dp)
                     ) {
                         Text(
-                            text = "⚡ ডাইরেক্ট",
-                            color = Color.White,
+                            text = "🎧 স্ক্রিন অফ প্লে",
+                            color = Color(0xFF81C784),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
@@ -351,7 +368,7 @@ fun VideoPlayerView(
                             .padding(horizontal = 4.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = if (isDataSaverEnabled) "⚡ সেভার চালু" else "⚡ HD/Auto",
+                            text = if (isDataSaverEnabled) "⚡ সেভার চালু" else "⚡ ফ্রি প্রিমিয়াম",
                             color = if (isDataSaverEnabled) DataSaverGreen else Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,

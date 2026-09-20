@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -17,30 +19,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DataSaverOn
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SignalCellularAlt
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -60,15 +58,20 @@ import com.example.model.DataSaverSettingsEntity
 import com.example.model.Video
 import com.example.model.VideoQuality
 import com.example.ui.components.FastDownloadDialog
+import com.example.ui.components.GridVideoCard
 import com.example.ui.components.VideoCard
-import com.example.ui.theme.DataSaverGreen
-import com.example.ui.theme.TubeRed
+
+private val TabActiveYellow = Color(0xFFE5A93C)
+private val TabInactiveGray = Color(0xFF9E9E9E)
+private val DarkBg = Color(0xFF0F0F0F)
+private val SurfaceDark = Color(0xFF181818)
 
 @Composable
 fun HomeScreen(
     videos: List<Video>,
     selectedCategory: String,
     searchQuery: String,
+    searchSuggestions: List<String> = emptyList(),
     dataSaverSettings: DataSaverSettingsEntity,
     onSelectCategory: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
@@ -77,8 +80,17 @@ fun HomeScreen(
     onToggleDataSaver: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isSearchExpanded by remember { mutableStateOf(false) }
     var videoToDownload by remember { mutableStateOf<Video?>(null) }
+    val focusManager = LocalFocusManager.current
+
+    // 4 Top Tabs shown in screenshot: Search, YouTube, Music, More
+    val topTabs = listOf("Search", "YouTube", "Music", "More")
+    val currentTab = when {
+        selectedCategory == "Search" || searchQuery.isNotBlank() -> "Search"
+        selectedCategory == "Music" -> "Music"
+        selectedCategory == "More" -> "More"
+        else -> "YouTube"
+    }
 
     if (videoToDownload != null) {
         FastDownloadDialog(
@@ -88,256 +100,284 @@ fun HomeScreen(
         )
     }
 
-    val categories = listOf("All", "গান (Music)", "গজল (Ghazal)", "মুভি ও নাটক", "Tech", "Travel", "Gaming", "Food", "Animation")
-
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(DarkBg)
     ) {
-        // App Bar
+        // TOP TAB HEADER (Search | YouTube | Music | More) - Matching Screenshot
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .background(DarkBg)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Brand Logo
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable {
-                    onSelectCategory("All")
-                    onSearchQueryChange("")
-                }
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = TubeRed,
-                    modifier = Modifier.size(30.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Tube",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "Lite",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Light,
-                    color = TubeRed
-                )
-            }
-
-            // Right side icons: Data Saver MB Pill + Search button
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Live MB Tracker Pill
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (dataSaverSettings.dataSaverEnabled) DataSaverGreen.copy(alpha = 0.16f)
-                    else MaterialTheme.colorScheme.surfaceVariant,
+            topTabs.forEach { tabName ->
+                val isSelected = currentTab == tabName
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onToggleDataSaver(!dataSaverSettings.dataSaverEnabled) }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SignalCellularAlt,
-                            contentDescription = null,
-                            tint = if (dataSaverSettings.dataSaverEnabled) DataSaverGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "${String.format("%.1f", dataSaverSettings.usedMbToday)} / ${dataSaverSettings.dailyBudgetMb} MB",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (dataSaverSettings.dataSaverEnabled) DataSaverGreen else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                IconButton(
-                    onClick = {
-                        isSearchExpanded = !isSearchExpanded
-                        if (!isSearchExpanded) {
-                            onSearchQueryChange("")
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            if (tabName == "Search") {
+                                onSelectCategory("Search")
+                            } else {
+                                onSearchQueryChange("")
+                                onSelectCategory(tabName)
+                            }
                         }
-                    },
-                    modifier = Modifier.testTag("home_search_toggle")
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .testTag("top_tab_$tabName")
                 ) {
-                    Icon(
-                        imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onBackground
+                    Text(
+                        text = tabName,
+                        fontSize = 16.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) Color.White else TabInactiveGray
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Amber/Yellow Underline for Active Tab (as shown in screenshot)
+                    Box(
+                        modifier = Modifier
+                            .width(28.dp)
+                            .height(3.dp)
+                            .background(
+                                color = if (isSelected) TabActiveYellow else Color.Transparent,
+                                shape = RoundedCornerShape(2.dp)
+                            )
                     )
                 }
             }
         }
 
-        // Expandable Search Bar
-        AnimatedVisibility(visible = isSearchExpanded) {
-            Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+        // SEARCH BAR (when Search tab is active or search query present)
+        AnimatedVisibility(
+            visible = currentTab == "Search",
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkBg)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     placeholder = {
-                        Text("গান, গজল, নাটক, মুভি বা যেকোনো ভিডিও খুঁজুন...", fontSize = 13.sp)
+                        Text(
+                            "ইউটিউবের অফিশিয়াল সার্ভারে খুঁজুন...",
+                            fontSize = 14.sp,
+                            color = TabInactiveGray
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = TabActiveYellow,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear",
+                                    tint = Color.White
+                                )
+                            }
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("search_input_field"),
                     shape = RoundedCornerShape(24.dp),
                     singleLine = true,
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { onSearchQueryChange("") }) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TubeRed,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        focusedBorderColor = TabActiveYellow,
+                        unfocusedBorderColor = Color(0xFF2C2C2C),
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
                     )
                 )
-            }
-        }
 
-        // Category Chips Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            categories.forEach { category ->
-                val isSelected = selectedCategory == category
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onSelectCategory(category) },
-                    label = {
-                        Text(
-                            text = category,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.onBackground,
-                        selectedLabelColor = MaterialTheme.colorScheme.background,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        labelColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                )
-            }
-        }
-
-        // Video Feed
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp)
-        ) {
-            // Data Saver info banner on top
-            item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (dataSaverSettings.dataSaverEnabled)
-                            DataSaverGreen.copy(alpha = 0.12f)
-                        else
-                            MaterialTheme.colorScheme.surfaceVariant
-                    ),
+                // Quick Popular Search Tags
+                LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                    val quickTags = listOf(
+                        "Kamariya slowed reverb",
+                        "Mix Music of Asia",
+                        "দুটো মনে লেগে গেছে জোড়া",
+                        "Kiya Kiya slowed",
+                        "Arijit Singh hits",
+                        "Coke Studio Bangla",
+                        "বাংলা নতুন গান 2026"
+                    )
+                    items(quickTags) { tag ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF222222),
+                            modifier = Modifier.clickable {
+                                onSearchQueryChange(tag)
+                                focusManager.clearFocus()
+                            }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.DataSaverOn,
-                                contentDescription = null,
-                                tint = if (dataSaverSettings.dataSaverEnabled) DataSaverGreen else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (dataSaverSettings.dataSaverEnabled) "আল্ট্রা ডাটা সেভার সক্রিয় (Auto)"
-                                    else "ডাটা সেভার বন্ধ",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (dataSaverSettings.dataSaverEnabled) DataSaverGreen else MaterialTheme.colorScheme.onSurface
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = TabInactiveGray,
+                                    modifier = Modifier.size(14.dp)
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "১০০-২০০ এমবি বাজেটে সারাদিন নির্বিঘ্নে ভিডিও উপভোগ করুন",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = tag,
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.9f)
                                 )
                             }
                         }
+                    }
+                }
 
-                        Switch(
-                            checked = dataSaverSettings.dataSaverEnabled,
-                            onCheckedChange = onToggleDataSaver,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = DataSaverGreen
-                            ),
-                            modifier = Modifier.testTag("home_data_saver_switch")
-                        )
+                // Live Autocomplete Suggestions from YouTube Suggest API
+                if (searchSuggestions.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF1E1E1E),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            searchSuggestions.take(5).forEach { suggestion ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onSearchQueryChange(suggestion)
+                                            focusManager.clearFocus()
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = TabInactiveGray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = suggestion,
+                                            fontSize = 14.sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.NorthWest,
+                                        contentDescription = null,
+                                        tint = TabInactiveGray,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
 
-            // Video Cards
-            if (videos.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "কোনো ভিডিও পাওয়া যায়নি",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp
-                        )
+        // VIDEO FEED
+        if (videos.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = TabActiveYellow,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "ইউটিউব সার্ভার থেকে ফেচ করা হচ্ছে...",
+                        color = TabInactiveGray,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp)
+            ) {
+                // Section 1: Featured Large Video Cards (Screenshot shows 2 prominent large cards)
+                val topFeaturedVideos = videos.take(2)
+                val remainingVideos = videos.drop(2)
+
+                items(topFeaturedVideos, key = { it.id }) { video ->
+                    VideoCard(
+                        video = video,
+                        onClick = { onSelectVideo(video) },
+                        onDownloadClick = { videoToDownload = video }
+                    )
+                }
+
+                // Section 2: 2-Column Grid Row (Screenshot shows 2 side-by-side video cards)
+                if (remainingVideos.size >= 2) {
+                    val gridPair = remainingVideos.take(2)
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            GridVideoCard(
+                                video = gridPair[0],
+                                onClick = { onSelectVideo(gridPair[0]) },
+                                onDownloadClick = { videoToDownload = gridPair[0] },
+                                modifier = Modifier.weight(1f)
+                            )
+                            GridVideoCard(
+                                video = gridPair[1],
+                                onClick = { onSelectVideo(gridPair[1]) },
+                                onDownloadClick = { videoToDownload = gridPair[1] },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
-            } else {
-                items(videos, key = { it.id }) { video ->
+
+                // Section 3: Remaining Video Feed
+                val restOfVideos = remainingVideos.drop(2)
+                items(restOfVideos, key = { it.id }) { video ->
                     VideoCard(
                         video = video,
                         onClick = { onSelectVideo(video) },
