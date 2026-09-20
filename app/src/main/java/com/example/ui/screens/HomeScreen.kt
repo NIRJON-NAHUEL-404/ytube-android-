@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +41,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,6 +76,8 @@ fun HomeScreen(
     searchQuery: String,
     searchSuggestions: List<String> = emptyList(),
     dataSaverSettings: DataSaverSettingsEntity,
+    isLoadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onSelectCategory: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onSelectVideo: (Video) -> Unit,
@@ -82,6 +87,23 @@ fun HomeScreen(
 ) {
     var videoToDownload by remember { mutableStateOf<Video?>(null) }
     val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+
+    // Detect when user scrolls near the bottom to automatically trigger infinite loading
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleItemIndex >= totalItems - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore, isLoadingMore) {
+        if (shouldLoadMore && !isLoadingMore) {
+            onLoadMore()
+        }
+    }
 
     // 4 Top Tabs shown in screenshot: Search, YouTube, Music, More
     val topTabs = listOf("Search", "YouTube", "Music", "More")
@@ -332,6 +354,7 @@ fun HomeScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -352,7 +375,7 @@ fun HomeScreen(
                 // Section 2: 2-Column Grid Row (Screenshot shows 2 side-by-side video cards)
                 if (remainingVideos.size >= 2) {
                     val gridPair = remainingVideos.take(2)
-                    item {
+                    item(key = "featured_grid_row") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -383,6 +406,34 @@ fun HomeScreen(
                         onClick = { onSelectVideo(video) },
                         onDownloadClick = { videoToDownload = video }
                     )
+                }
+
+                // Section 4: Infinite Scrolling Loader Indicator
+                if (isLoadingMore) {
+                    item(key = "infinite_scroll_loading_indicator") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = TabActiveYellow,
+                                    strokeWidth = 2.5.dp,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text(
+                                    text = "ইউটিউব থেকে আরও ভিডিও লোড হচ্ছে...",
+                                    fontSize = 13.sp,
+                                    color = TabInactiveGray
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

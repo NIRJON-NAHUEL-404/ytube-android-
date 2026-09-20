@@ -25,13 +25,19 @@ object YouTubeSearchService {
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    data class SearchResult(
+        val videos: List<Video>,
+        val continuationToken: String? = null
+    )
+
     /**
      * Query official YouTube Innertube search API to get 100% real videos, thumbnails,
-     * channel info, duration, and view counts directly from YouTube's server.
+     * channel info, duration, and view counts directly from YouTube's server,
+     * along with continuation token for infinite scroll.
      */
-    suspend fun searchVideos(query: String): List<Video> = withContext(Dispatchers.IO) {
+    suspend fun searchVideosWithContinuation(query: String): SearchResult = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return@withContext emptyList()
+        if (trimmed.isEmpty()) return@withContext SearchResult(emptyList(), null)
 
         try {
             val requestJson = JSONObject().apply {
@@ -58,109 +64,254 @@ object YouTubeSearchService {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
                 Log.w(TAG, "Innertube search failed with code: ${response.code}")
-                return@withContext fallbackHtmlSearch(trimmed)
+                return@withContext SearchResult(fallbackHtmlSearch(trimmed), null)
             }
 
-            val bodyString = response.body?.string() ?: return@withContext fallbackHtmlSearch(trimmed)
+            val bodyString = response.body?.string() ?: return@withContext SearchResult(fallbackHtmlSearch(trimmed), null)
             val root = JSONObject(bodyString)
 
-            val parsed = parseInnertubeSearchResults(root, trimmed)
-            if (parsed.isNotEmpty()) {
-                Log.d(TAG, "Innertube fetched ${parsed.size} live YouTube videos for query: '$query'")
-                return@withContext parsed
+            val result = parseInnertubeSearchResults(root, trimmed)
+            if (result.videos.isNotEmpty()) {
+                Log.d(TAG, "Innertube fetched ${result.videos.size} live YouTube videos, nextToken present: ${result.continuationToken != null}")
+                return@withContext result
             }
 
             // Fallback if Innertube parsed 0 results
-            fallbackHtmlSearch(trimmed)
+            SearchResult(fallbackHtmlSearch(trimmed), null)
         } catch (e: Exception) {
             Log.e(TAG, "Error in Innertube search for '$query'", e)
-            fallbackHtmlSearch(trimmed)
+            SearchResult(fallbackHtmlSearch(trimmed), null)
         }
     }
 
-    private fun parseInnertubeSearchResults(root: JSONObject, query: String): List<Video> {
+    /**
+     * Backward-compatible convenience method
+     */
+    suspend fun searchVideos(query: String): List<Video> {
+        return searchVideosWithContinuation(query).videos
+    }
+
+    /**
+     * Load next page of videos using YouTube Innertube continuation token
+     * for seamless infinite scrolling just like official YouTube.
+     */
+    suspend fun continueSearch(continuationToken: String, query: String = ""): SearchResult = withContext(Dispatchers.IO) {
+        if (continuationToken.isBlank()) return@withContext SearchResult(emptyList(), null)
+
+        try {
+            val requestJson = JSONObject().apply {
+                put("context", JSONObject().apply {
+                    put("client", JSONObject().apply {
+                        put("clientName", "WEB")
+                        put("clientVersion", "2.20240101.00.00")
+                        put("hl", "en")
+                        put("gl", "BD")
+                    })
+                })
+                put("continuation", continuationToken)
+            }
+
+            val request = Request.Builder()
+                .url("https://www.youtube.com/youtubei/v1/search")
+                .post(requestJson.toString().toRequestBody(jsonMediaType))
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("X-YouTube-Client-Name", "1")
+                .header("X-YouTube-Client-Version", "2.20240101.00.00")
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Innertube continuation failed with code: ${response.code}")
+                return@withContext SearchResult(emptyList(), null)
+            }
+
+            val bodyString = response.body?.string() ?: return@withContext SearchResult(emptyList(), null)
+            val root = JSONObject(bodyString)
+
+            parseContinuationResults(root, query)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in continuation request", e)
+            SearchResult(emptyList(), null)
+        }
+    }
+
+    private fun parseInnertubeSearchResults(root: JSONObject, query: String): SearchResult {
         val results = mutableListOf<Video>()
+        var nextContinuationToken: String? = null
+
         val contents = root.optJSONObject("contents")
             ?.optJSONObject("twoColumnSearchResultsRenderer")
             ?.optJSONObject("primaryContents")
             ?.optJSONObject("sectionListRenderer")
-            ?.optJSONArray("contents") ?: return emptyList()
+            ?.optJSONArray("contents") ?: return SearchResult(emptyList(), null)
 
         for (i in 0 until contents.length()) {
             val section = contents.optJSONObject(i) ?: continue
+
+            // Check if section itself is continuationItemRenderer
+            val sectionContinuation = section.optJSONObject("continuationItemRenderer")
+            if (sectionContinuation != null) {
+                val token = sectionContinuation.optJSONObject("continuationEndpoint")
+                    ?.optJSONObject("continuationCommand")
+                    ?.optString("token")
+                if (!token.isNullOrBlank()) {
+                    nextContinuationToken = token
+                }
+            }
+
             val itemSectionContents = section.optJSONObject("itemSectionRenderer")
                 ?.optJSONArray("contents") ?: continue
 
             for (j in 0 until itemSectionContents.length()) {
                 val item = itemSectionContents.optJSONObject(j) ?: continue
+
+                // Check for continuationItem inside itemSection
+                val itemContinuation = item.optJSONObject("continuationItemRenderer")
+                if (itemContinuation != null) {
+                    val token = itemContinuation.optJSONObject("continuationEndpoint")
+                        ?.optJSONObject("continuationCommand")
+                        ?.optString("token")
+                    if (!token.isNullOrBlank()) {
+                        nextContinuationToken = token
+                    }
+                }
+
                 val vr = item.optJSONObject("videoRenderer") ?: continue
-
-                val videoId = vr.optString("videoId")
-                if (videoId.isNullOrBlank()) continue
-
-                // Extract Title
-                val title = vr.optJSONObject("title")?.let { extractTextFromRuns(it) } ?: "YouTube Video"
-
-                // Extract Channel / Owner
-                val channelName = vr.optJSONObject("ownerText")?.let { extractTextFromRuns(it) } ?: "YouTube Creator"
-
-                // Extract High-Res Thumbnail
-                val thumbArray = vr.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
-                val thumbUrl = if (thumbArray != null && thumbArray.length() > 0) {
-                    thumbArray.optJSONObject(thumbArray.length() - 1)?.optString("url")
-                        ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
-                } else {
-                    "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+                val video = parseVideoRenderer(vr, query)
+                if (video != null) {
+                    results.add(video)
                 }
-
-                // Extract Channel Avatar
-                val avatarList = vr.optJSONObject("channelThumbnailSupportedRenderers")
-                    ?.optJSONObject("channelThumbnailWithLinkRenderer")
-                    ?.optJSONObject("thumbnail")
-                    ?.optJSONArray("thumbnails")
-                val avatarUrl = if (avatarList != null && avatarList.length() > 0) {
-                    avatarList.optJSONObject(0)?.optString("url")
-                        ?: "https://picsum.photos/seed/$channelName/200/200"
-                } else {
-                    "https://picsum.photos/seed/$channelName/200/200"
-                }
-
-                // Duration
-                val lengthText = vr.optJSONObject("lengthText")?.optString("simpleText") ?: ""
-                val durationSec = parseDurationToSeconds(lengthText)
-
-                // Views
-                val viewsText = vr.optJSONObject("viewCountText")?.optString("simpleText") ?: ""
-                val viewsCount = parseViewsCount(viewsText)
-
-                // Published Ago
-                val publishedAgo = vr.optJSONObject("publishedTimeText")?.optString("simpleText") ?: "Recently"
-
-                // Category
-                val category = determineCategory(title, query)
-
-                results.add(
-                    Video(
-                        id = "yt_$videoId",
-                        title = title,
-                        description = "YouTube Official Video • $channelName • $viewsText",
-                        channelName = channelName,
-                        channelAvatarUrl = avatarUrl,
-                        subscriberCount = "1.2M",
-                        videoUrl = "https://www.youtube.com/watch?v=$videoId",
-                        thumbnailUrl = thumbUrl,
-                        durationSeconds = durationSec,
-                        viewsCount = viewsCount,
-                        uploadedTimeAgo = publishedAgo,
-                        category = category,
-                        youtubeId = videoId,
-                        likesCount = (viewsCount / 22).coerceAtLeast(850L),
-                        commentsCount = (viewsCount / 250).toInt().coerceIn(35, 4500)
-                    )
-                )
             }
         }
-        return results
+        return SearchResult(results, nextContinuationToken)
+    }
+
+    private fun parseContinuationResults(root: JSONObject, query: String): SearchResult {
+        val results = mutableListOf<Video>()
+        var nextContinuationToken: String? = null
+
+        val commands = root.optJSONArray("onResponseReceivedCommands")
+        if (commands != null) {
+            for (i in 0 until commands.length()) {
+                val cmd = commands.optJSONObject(i) ?: continue
+                val action = cmd.optJSONObject("appendContinuationItemsAction") ?: continue
+                val items = action.optJSONArray("continuationItems") ?: continue
+
+                for (j in 0 until items.length()) {
+                    val it = items.optJSONObject(j) ?: continue
+
+                    // Check continuationItemRenderer
+                    val contItem = it.optJSONObject("continuationItemRenderer")
+                    if (contItem != null) {
+                        val token = contItem.optJSONObject("continuationEndpoint")
+                            ?.optJSONObject("continuationCommand")
+                            ?.optString("token")
+                        if (!token.isNullOrBlank()) {
+                            nextContinuationToken = token
+                        }
+                    }
+
+                    // Direct videoRenderer
+                    val vrDirect = it.optJSONObject("videoRenderer")
+                    if (vrDirect != null) {
+                        val v = parseVideoRenderer(vrDirect, query)
+                        if (v != null) results.add(v)
+                    }
+
+                    // Nested in itemSectionRenderer
+                    val isr = it.optJSONObject("itemSectionRenderer")
+                    if (isr != null) {
+                        val subContents = isr.optJSONArray("contents")
+                        if (subContents != null) {
+                            for (k in 0 until subContents.length()) {
+                                val sub = subContents.optJSONObject(k) ?: continue
+                                val vrNested = sub.optJSONObject("videoRenderer")
+                                if (vrNested != null) {
+                                    val v = parseVideoRenderer(vrNested, query)
+                                    if (v != null) results.add(v)
+                                }
+                                val subCont = sub.optJSONObject("continuationItemRenderer")
+                                if (subCont != null) {
+                                    val token = subCont.optJSONObject("continuationEndpoint")
+                                        ?.optJSONObject("continuationCommand")
+                                        ?.optString("token")
+                                    if (!token.isNullOrBlank()) {
+                                        nextContinuationToken = token
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return SearchResult(results, nextContinuationToken)
+    }
+
+    private fun parseVideoRenderer(vr: JSONObject, query: String): Video? {
+        val videoId = vr.optString("videoId")
+        if (videoId.isNullOrBlank()) return null
+
+        // Extract Title
+        val title = vr.optJSONObject("title")?.let { extractTextFromRuns(it) } ?: "YouTube Video"
+
+        // Extract Channel / Owner
+        val channelName = vr.optJSONObject("ownerText")?.let { extractTextFromRuns(it) } ?: "YouTube Creator"
+
+        // Extract High-Res Thumbnail
+        val thumbArray = vr.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        val thumbUrl = if (thumbArray != null && thumbArray.length() > 0) {
+            thumbArray.optJSONObject(thumbArray.length() - 1)?.optString("url")
+                ?: "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+        } else {
+            "https://i.ytimg.com/vi/$videoId/hq720.jpg"
+        }
+
+        // Extract Channel Avatar
+        val avatarList = vr.optJSONObject("channelThumbnailSupportedRenderers")
+            ?.optJSONObject("channelThumbnailWithLinkRenderer")
+            ?.optJSONObject("thumbnail")
+            ?.optJSONArray("thumbnails")
+        val avatarUrl = if (avatarList != null && avatarList.length() > 0) {
+            avatarList.optJSONObject(0)?.optString("url")
+                ?: "https://picsum.photos/seed/$channelName/200/200"
+        } else {
+            "https://picsum.photos/seed/$channelName/200/200"
+        }
+
+        // Duration
+        val lengthText = vr.optJSONObject("lengthText")?.optString("simpleText") ?: ""
+        val durationSec = parseDurationToSeconds(lengthText)
+
+        // Views
+        val viewsText = vr.optJSONObject("viewCountText")?.optString("simpleText") ?: ""
+        val viewsCount = parseViewsCount(viewsText)
+
+        // Published Ago
+        val publishedAgo = vr.optJSONObject("publishedTimeText")?.optString("simpleText") ?: "Recently"
+
+        // Category
+        val category = determineCategory(title, query)
+
+        return Video(
+            id = "yt_$videoId",
+            title = title,
+            description = "YouTube Official Video • $channelName • $viewsText",
+            channelName = channelName,
+            channelAvatarUrl = avatarUrl,
+            subscriberCount = "1.2M",
+            videoUrl = "https://www.youtube.com/watch?v=$videoId",
+            thumbnailUrl = thumbUrl,
+            durationSeconds = durationSec,
+            viewsCount = viewsCount,
+            uploadedTimeAgo = publishedAgo,
+            category = category,
+            youtubeId = videoId,
+            likesCount = (viewsCount / 22).coerceAtLeast(850L),
+            commentsCount = (viewsCount / 250).toInt().coerceIn(35, 4500)
+        )
     }
 
     private fun extractTextFromRuns(jsonObj: JSONObject): String {
@@ -242,10 +393,10 @@ object YouTubeSearchService {
 
             val jsonStr = matcher.group(1) ?: return emptyList()
             val root = JSONObject(jsonStr)
-            parseInnertubeSearchResults(root, query)
+            parseInnertubeSearchResults(root, query).videos
         } catch (e: Exception) {
             Log.e(TAG, "Fallback HTML search failed", e)
-            emptyList()
+            emptyList<Video>()
         }
     }
 

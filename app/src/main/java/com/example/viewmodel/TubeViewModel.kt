@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -69,19 +70,107 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = DataSaverSettingsEntity()
         )
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val videos: StateFlow<List<Video>> = combine(
-        _selectedCategory,
-        _searchQuery
-    ) { category, query -> Pair(category, query) }
-        .flatMapLatest { (category, query) ->
-            repository.getVideosFlow(category, query)
+    private val _videos = MutableStateFlow<List<Video>>(emptyList())
+    val videos: StateFlow<List<Video>> = _videos.asStateFlow()
+
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
+
+    private var currentContinuationToken: String? = null
+    private var currentResolvedQuery: String = ""
+    private var currentDiscoveryOffset: Int = 0
+
+    private val discoveryQueries = listOf(
+        "Bangla Hit Songs 2026",
+        "Arijit Singh Best Bangla Songs",
+        "Bengali New Natok 2026",
+        "Best Relaxing Lofi Beats Asia",
+        "Tech Tips & Smartphone Bangla",
+        "Bangladesh Beautiful Travel 4K",
+        "World Gaming Highlights esports",
+        "Bangla Islamic Ghazal Nasheed",
+        "Viral Funny Animation Clips",
+        "Top Bengali Movie Songs Remix"
+    )
+
+    init {
+        viewModelScope.launch {
+            combine(_selectedCategory, _searchQuery) { cat, q -> Pair(cat, q) }
+                .collectLatest { (cat, q) ->
+                    fetchInitialVideos(cat, q)
+                }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    }
+
+    private suspend fun fetchInitialVideos(category: String, query: String) {
+        _isSearchLoading.value = true
+        currentContinuationToken = null
+        currentDiscoveryOffset = 0
+        currentResolvedQuery = repository.resolveYouTubeQuery(category, query)
+
+        try {
+            val result = repository.searchVideosWithPagination(category, query)
+            _videos.value = result.videos
+            currentContinuationToken = result.continuationToken
+        } catch (e: Exception) {
+            android.util.Log.e("TubeViewModel", "Error fetching initial videos", e)
+        } finally {
+            _isSearchLoading.value = false
+        }
+    }
+
+    /**
+     * Infinite Scrolling Loader: Automatically triggered when the user scrolls near the end
+     * of the feed, fetching next pages seamlessly just like the official YouTube app.
+     */
+    fun loadMoreVideos() {
+        if (_isLoadingMore.value || _isSearchLoading.value) return
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                val token = currentContinuationToken
+                if (!token.isNullOrBlank()) {
+                    val nextResult = repository.loadMoreYouTubeVideos(token, currentResolvedQuery)
+                    if (nextResult.videos.isNotEmpty()) {
+                        val existingIds = _videos.value.map { it.youtubeId }.toSet()
+                        val newUnique = nextResult.videos.filter { it.youtubeId !in existingIds }
+                        if (newUnique.isNotEmpty()) {
+                            _videos.value = _videos.value + newUnique
+                        }
+                        currentContinuationToken = nextResult.continuationToken
+                    } else {
+                        // Fallback to Infinite Discovery so scrolling NEVER halts
+                        fetchInfiniteDiscoveryBatch()
+                    }
+                } else {
+                    // Seamless Infinite Discovery
+                    fetchInfiniteDiscoveryBatch()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TubeViewModel", "Error loading more videos", e)
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
+    private suspend fun fetchInfiniteDiscoveryBatch() {
+        try {
+            val nextQuery = discoveryQueries[currentDiscoveryOffset % discoveryQueries.size]
+            currentDiscoveryOffset++
+            val result = repository.searchVideosWithPagination("YouTube", nextQuery)
+            if (result.videos.isNotEmpty()) {
+                val existingIds = _videos.value.map { it.youtubeId }.toSet()
+                val newUnique = result.videos.filter { it.youtubeId !in existingIds }
+                if (newUnique.isNotEmpty()) {
+                    _videos.value = _videos.value + newUnique
+                }
+                currentContinuationToken = result.continuationToken
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("TubeViewModel", "Error in discovery batch", e)
+        }
+    }
 
     val subscriptions: StateFlow<List<SubscriptionEntity>> = repository.getAllSubscriptions()
         .stateIn(
@@ -177,6 +266,17 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleLike(video: Video) {
         viewModelScope.launch {
             repository.toggleLike(video.id)
+            val updated = _videos.value.map {
+                if (it.id == video.id) {
+                    val newLiked = !it.isLiked
+                    it.copy(
+                        isLiked = newLiked,
+                        isDisliked = false,
+                        likesCount = it.likesCount + if (newLiked) 1 else -1
+                    )
+                } else it
+            }
+            _videos.value = updated
             // Update current playing video like state if matches
             if (_currentPlayingVideo.value?.id == video.id) {
                 val newLiked = !_currentPlayingVideo.value!!.isLiked
@@ -192,6 +292,16 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleDislike(video: Video) {
         viewModelScope.launch {
             repository.toggleDislike(video.id)
+            val updated = _videos.value.map {
+                if (it.id == video.id) {
+                    val newDisliked = !it.isDisliked
+                    it.copy(
+                        isDisliked = newDisliked,
+                        isLiked = false
+                    )
+                } else it
+            }
+            _videos.value = updated
             if (_currentPlayingVideo.value?.id == video.id) {
                 val newDisliked = !_currentPlayingVideo.value!!.isDisliked
                 _currentPlayingVideo.value = _currentPlayingVideo.value!!.copy(
@@ -205,6 +315,12 @@ class TubeViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSubscribe(channelName: String, avatarUrl: String, subscriberCount: String) {
         viewModelScope.launch {
             repository.toggleSubscription(channelName, avatarUrl, subscriberCount)
+            val updated = _videos.value.map {
+                if (it.channelName == channelName) {
+                    it.copy(isSubscribed = !it.isSubscribed)
+                } else it
+            }
+            _videos.value = updated
             if (_currentPlayingVideo.value?.channelName == channelName) {
                 val newSub = !_currentPlayingVideo.value!!.isSubscribed
                 _currentPlayingVideo.value = _currentPlayingVideo.value!!.copy(isSubscribed = newSub)

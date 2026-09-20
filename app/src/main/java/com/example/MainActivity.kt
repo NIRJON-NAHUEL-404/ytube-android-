@@ -85,6 +85,7 @@ fun TubeLiteApp(viewModel: TubeViewModel) {
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
 
     // Handle Back Press
     BackHandler(enabled = currentPlayingVideo != null) {
@@ -221,6 +222,8 @@ fun TubeLiteApp(viewModel: TubeViewModel) {
                         searchQuery = searchQuery,
                         searchSuggestions = searchSuggestions,
                         dataSaverSettings = dataSaverSettings,
+                        isLoadingMore = isLoadingMore,
+                        onLoadMore = viewModel::loadMoreVideos,
                         onSelectCategory = viewModel::setSelectedCategory,
                         onSearchQueryChange = viewModel::setSearchQuery,
                         onSelectVideo = viewModel::playVideo,

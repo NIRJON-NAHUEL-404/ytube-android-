@@ -94,103 +94,65 @@ fun YouTubeEmbeddedPlayer(
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var currentLoadedId by remember { mutableStateOf("") }
-    val watchUrl = remember(youtubeId) { "https://m.youtube.com/watch?v=$youtubeId" }
 
-    val cleanPlayerCss = """
-        header,
-        #header-bar,
-        ytm-mobile-topbar-renderer,
-        ytm-pivot-bar-renderer,
-        .ytm-pivot-bar,
-        ytm-single-column-browse-results-renderer,
-        .watch-below-the-fold,
-        ytm-item-section-renderer,
-        #comments,
-        .comment-section-renderer,
-        ytm-engagement-panel,
-        ytm-promoted-sparkles-web-renderer,
-        ytm-companion-ad-renderer,
-        .ytp-ad-overlay-container,
-        .video-ads,
-        .ytp-ad-module,
-        .ad-showing,
-        .ytp-ad-player-overlay,
-        ytm-app-promo,
-        .upsell-dialog-renderer,
-        ytm-mealbar-promo-renderer,
-        .ytm-cookie-banner,
-        tp-yt-paper-dialog,
-        #lightbox,
-        .ytp-chrome-top,
-        .ytp-show-cards-title,
-        .ytp-pause-overlay {
-            display: none !important;
-        }
-        html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #000000 !important;
-            overflow: hidden !important;
-            width: 100vw !important;
-            height: 100% !important;
-        }
-        #player-container-id,
-        .player-container,
-        #player {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100vw !important;
-            height: 100% !important;
-            z-index: 999999 !important;
-            background: #000000 !important;
-        }
-        video, .html5-main-video {
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: contain !important;
-        }
-    """.trimIndent().replace("\n", " ")
-
-    val injectScript = """
-        (function() {
-            // 1. Background Playback Hack: Prevent YouTube from pausing when screen turns off or app is backgrounded
-            try {
-                window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-                document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-            } catch(e) {}
-
-            // 2. Inject CSS to hide all YouTube website clutter and show only the video player
-            var styleId = 'tube-clean-style';
-            var existingStyle = document.getElementById(styleId);
-            if (!existingStyle) {
-                var style = document.createElement('style');
-                style.id = styleId;
-                style.textContent = `$cleanPlayerCss`;
-                document.documentElement.appendChild(style);
-            }
-
-            // 3. Auto-play & Auto-skip ads (Free Premium experience)
-            if (!window.__tubeInterval) {
-                window.__tubeInterval = setInterval(function() {
-                    var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
-                    if (skipBtn) {
-                        skipBtn.click();
-                    }
-                    var dismissBtn = document.querySelector('ytm-mealbar-promo-renderer button, .upsell-dialog-renderer button');
-                    if (dismissBtn) {
-                        dismissBtn.click();
-                    }
-                    var video = document.querySelector('video');
-                    if (video && video.paused && !video.ended) {
-                        video.play().catch(function(){});
-                    }
-                }, 350);
-            }
-        })();
-    """.trimIndent()
+    val embedHtml = remember(youtubeId) {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <style>
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                html, body {
+                    width: 100%;
+                    height: 100%;
+                    background-color: #000000;
+                    overflow: hidden;
+                }
+                #player-container {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                }
+                iframe {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    border: 0;
+                }
+            </style>
+        </head>
+        <body>
+            <div id="player-container">
+                <iframe
+                    id="yt-player"
+                    src="https://www.youtube.com/embed/$youtubeId?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=1&rel=0&modestbranding=1&iv_load_policy=3&origin=https://www.youtube.com"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen>
+                </iframe>
+            </div>
+            <script>
+                // Background & Screen-off Playback Hack:
+                // Intercept visibilitychange so YouTube never pauses when screen turns off or app is minimized
+                try {
+                    window.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                    document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+                    Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+                } catch(e) {}
+            </script>
+        </body>
+        </html>
+        """.trimIndent()
+    }
 
     DisposableEffect(youtubeId) {
         onDispose {
@@ -209,6 +171,10 @@ fun YouTubeEmbeddedPlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                // Ensure hardware accelerated compositing for video surface
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                setBackgroundColor(android.graphics.Color.BLACK)
+
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -220,40 +186,34 @@ fun YouTubeEmbeddedPlayer(
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     javaScriptCanOpenWindowsAutomatically = false
                     setSupportMultipleWindows(false)
+                    allowContentAccess = true
+                    allowFileAccess = true
                     userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                 }
-                setBackgroundColor(android.graphics.Color.BLACK)
 
-                webChromeClient = WebChromeClient()
+                webChromeClient = object : WebChromeClient() {
+                    override fun getDefaultVideoPoster(): android.graphics.Bitmap? {
+                        // Return transparent 1x1 bitmap to prevent Android's default black/gray poster overlay
+                        return android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                    }
+                }
+
                 webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                        super.onPageStarted(view, url, favicon)
-                        view?.evaluateJavascript(injectScript, null)
-                    }
-
-                    override fun onLoadResource(view: WebView?, url: String?) {
-                        super.onLoadResource(view, url)
-                        view?.evaluateJavascript(injectScript, null)
-                    }
-
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        view?.evaluateJavascript(injectScript, null)
-                    }
-
                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                         val url = request?.url?.toString() ?: ""
-                        // Allow navigation for the current watch video
-                        if (url.contains("watch?v=$youtubeId") || url.contains("youtu.be/$youtubeId")) {
+                        // Allow YouTube embed, media streams, and scripts
+                        if (url.contains("youtube.com") || url.contains("youtube-nocookie.com") ||
+                            url.contains("googlevideo.com") || url.contains("ytimg.com") ||
+                            url.contains("google.com")) {
                             return false
                         }
-                        // Strictly block navigating away to channels, external ads, or outside apps
+                        // Prevent accidental navigation out of the video player
                         return true
                     }
                 }
 
                 currentLoadedId = youtubeId
-                loadUrl(watchUrl)
+                loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
                 webViewRef = this
             }
         },
@@ -261,7 +221,7 @@ fun YouTubeEmbeddedPlayer(
             webViewRef = webView
             if (currentLoadedId != youtubeId) {
                 currentLoadedId = youtubeId
-                webView.loadUrl(watchUrl)
+                webView.loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
             }
         },
         modifier = modifier

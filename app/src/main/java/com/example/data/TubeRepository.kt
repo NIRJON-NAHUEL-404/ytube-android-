@@ -199,26 +199,13 @@ class TubeRepository(
         }
 
         // Step 2: Fetch real YouTube videos from YouTube Innertube backend
-        val ytQuery = when {
-            query.isNotBlank() -> query
-            categoryFilter == "YouTube" -> "Mix Music of Asia slowed reverb"
-            categoryFilter == "Music" || categoryFilter == "গান (Music)" -> "Kamariya slowed reverb lofi songs"
-            categoryFilter.contains("গজল", ignoreCase = true) || categoryFilter.contains("Ghazal", ignoreCase = true) -> "বাংলা মন জুড়ানো গজল নাশীদ 2026"
-            categoryFilter.contains("মুভি", ignoreCase = true) || categoryFilter.contains("নাটক", ignoreCase = true) -> "বাংলা নতুন নাটক ও সিনেমা 2026"
-            categoryFilter == "More" -> "বাংলা সেরা নতুন গান ও নাটক 2026"
-            categoryFilter.equals("Tech", ignoreCase = true) -> "Tech Tips Bangla 2026"
-            categoryFilter.equals("Travel", ignoreCase = true) -> "Travel Vlog Bangladesh 4K"
-            categoryFilter.equals("Gaming", ignoreCase = true) -> "Gaming Highlights esports"
-            categoryFilter.equals("Food", ignoreCase = true) -> "Bangla Recipe Ranna"
-            categoryFilter.equals("Animation", ignoreCase = true) -> "Best Animation Short Film"
-            else -> "Mix Music of Asia slowed reverb"
-        }
+        val ytQuery = resolveYouTubeQuery(categoryFilter, query)
 
         try {
-            val realVideos = YouTubeSearchService.searchVideos(ytQuery)
-            if (realVideos.isNotEmpty()) {
-                realVideos.forEach { v -> dynamicVideoCache[v.id] = v }
-                emit(enrichVideos(realVideos))
+            val realResult = YouTubeSearchService.searchVideosWithContinuation(ytQuery)
+            if (realResult.videos.isNotEmpty()) {
+                realResult.videos.forEach { v -> dynamicVideoCache[v.id] = v }
+                emit(enrichVideos(realResult.videos))
             } else if (localMatches.isEmpty()) {
                 val fallback = generateDynamicVideos(query.ifBlank { "YouTube Hits" })
                 fallback.forEach { dynamicVideoCache[it.id] = it }
@@ -233,7 +220,66 @@ class TubeRepository(
         }
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun enrichVideos(videos: List<Video>): List<Video> {
+    fun resolveYouTubeQuery(categoryFilter: String, query: String): String {
+        val clean = query.trim()
+        return when {
+            clean.isNotBlank() -> clean
+            categoryFilter == "YouTube" -> "Mix Music of Asia slowed reverb"
+            categoryFilter == "Music" || categoryFilter == "গান (Music)" -> "Kamariya slowed reverb lofi songs"
+            categoryFilter.contains("গজল", ignoreCase = true) || categoryFilter.contains("Ghazal", ignoreCase = true) -> "বাংলা মন জুড়ানো গজল নাশীদ 2026"
+            categoryFilter.contains("মুভি", ignoreCase = true) || categoryFilter.contains("নাটক", ignoreCase = true) -> "বাংলা নতুন নাটক ও সিনেমা 2026"
+            categoryFilter == "More" -> "বাংলা সেরা নতুন গান ও নাটক 2026"
+            categoryFilter.equals("Tech", ignoreCase = true) -> "Tech Tips Bangla 2026"
+            categoryFilter.equals("Travel", ignoreCase = true) -> "Travel Vlog Bangladesh 4K"
+            categoryFilter.equals("Gaming", ignoreCase = true) -> "Gaming Highlights esports"
+            categoryFilter.equals("Food", ignoreCase = true) -> "Bangla Recipe Ranna"
+            categoryFilter.equals("Animation", ignoreCase = true) -> "Best Animation Short Film"
+            else -> "Mix Music of Asia slowed reverb"
+        }
+    }
+
+    suspend fun searchVideosWithPagination(categoryFilter: String = "All", searchQuery: String = ""): YouTubeSearchService.SearchResult {
+        val clean = searchQuery.trim()
+        val ytQuery = resolveYouTubeQuery(categoryFilter, clean)
+
+        return try {
+            val result = YouTubeSearchService.searchVideosWithContinuation(ytQuery)
+            if (result.videos.isNotEmpty()) {
+                result.videos.forEach { v -> dynamicVideoCache[v.id] = v }
+                YouTubeSearchService.SearchResult(
+                    videos = enrichVideos(result.videos),
+                    continuationToken = result.continuationToken
+                )
+            } else {
+                val fallback = generateDynamicVideos(clean.ifBlank { "YouTube Hits" })
+                fallback.forEach { dynamicVideoCache[it.id] = it }
+                YouTubeSearchService.SearchResult(enrichVideos(fallback), null)
+            }
+        } catch (_: Exception) {
+            val fallback = generateDynamicVideos(clean.ifBlank { "YouTube Hits" })
+            fallback.forEach { dynamicVideoCache[it.id] = it }
+            YouTubeSearchService.SearchResult(enrichVideos(fallback), null)
+        }
+    }
+
+    suspend fun loadMoreYouTubeVideos(continuationToken: String, query: String = ""): YouTubeSearchService.SearchResult {
+        return try {
+            val result = YouTubeSearchService.continueSearch(continuationToken, query)
+            if (result.videos.isNotEmpty()) {
+                result.videos.forEach { v -> dynamicVideoCache[v.id] = v }
+                YouTubeSearchService.SearchResult(
+                    videos = enrichVideos(result.videos),
+                    continuationToken = result.continuationToken
+                )
+            } else {
+                YouTubeSearchService.SearchResult(emptyList(), null)
+            }
+        } catch (_: Exception) {
+            YouTubeSearchService.SearchResult(emptyList(), null)
+        }
+    }
+
+    suspend fun enrichVideos(videos: List<Video>): List<Video> {
         val interactions = userInteractionDao.getWatchHistory().firstOrNull() ?: emptyList()
         val subscriptions = subscriptionDao.getAllSubscriptions().firstOrNull() ?: emptyList()
         val interactionMap = interactions.associateBy { it.videoId }
